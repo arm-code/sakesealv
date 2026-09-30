@@ -1,0 +1,188 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1770558680588,
+      "tag": "0000_thin_centennial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1770560144716,
+      "tag": "0001_premium_bedlam",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1770836066380,
+      "tag": "0002_calm_the_santerians",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1771400000000,
+      "tag": "0003_fancy_progress_percent",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1771600000000,
+      "tag": "0004_wise_plugin_releases",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1771700000000,
+      "tag": "0005_slim_ratings",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1771800000000,
+      "tag": "0006_windy_read_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1771900000000,
+      "tag": "0007_green_read_progress_restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1772300000000,
+      "tag": "0008_quick_archive_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1772400000000,
+      "tag": "0009_booklore_metadata_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1772500000000,
+      "tag": "0010_external_metadata_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1773000000000,
+      "tag": "0011_solid_progress_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1777800000000,
+      "tag": "0012_clean_shelves_basics",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1778600000000,
+      "tag": "0013_smooth_shelf_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1778700000000,
+      "tag": "0014_queue_jobs_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1778800000000,
+      "tag": "0015_shelf_sort_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1778900000000,
+      "tag": "0016_local_auth_sessions_api_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1778900001000,
+      "tag": "0017_device_version_registry",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1778900002000,
+      "tag": "0018_book_series_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1778900003000,
+      "tag": "0019_book_publication_month_day",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1778900004000,
+      "tag": "0020_users_basic_auth_password",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1781968045088,
+      "tag": "0021_reader_progress_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1782627929457,
+      "tag": "0022_hardcover_progress_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1782627929458,
+      "tag": "0023_queue_task_recovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1786881991558,
+      "tag": "0024_annotation_hub_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1787249844275,
+      "tag": "0025_zlibrary_mirror_settings",
+      "breakpoints": true
+    }
+  ]
+}
