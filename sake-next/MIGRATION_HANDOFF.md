@@ -17,11 +17,11 @@ sin saltar a la siguiente hasta cerrar la actual.
 ## Fases
 
 1. ✅ **Fase 1 — Setup inicial.** (COMPLETA)
-2. 🔜 **Fase 2 — Componentes base y refactor de estilos.** (EN CURSO)
-   - ✅ 2a — Shell visual (Sidebar, AppTopBar, MobileSidebarBackdrop, route groups). COMPLETA.
-   - ✅ 2b — Settings modal (shell + 5 panes, datos mock). COMPLETA.
-   - ✅ 2c — Shelf manager (CRUD local, drag&drop, reglas, emoji picker). COMPLETA.
-   - ⬜ 2d — ZLibraryAuthModal.
+2. ✅ **Fase 2 — Componentes base y refactor de estilos.** (COMPLETA)
+   - ✅ 2a — Shell visual (Sidebar, AppTopBar, MobileSidebarBackdrop, route groups).
+   - ✅ 2b — Settings modal (shell + 5 panes, datos mock).
+   - ✅ 2c — Shelf manager (CRUD local, drag&drop, reglas, emoji picker).
+   - ✅ 2d — ZLibraryAuthModal (formulario interactivo, submit mock).
 3. ⬜ **Fase 3 — Rutas de API y utilidades de servidor.**
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
@@ -295,22 +295,58 @@ errores de consola en ningún paso.
 
 ---
 
-## Fase 2d — Qué sigue (NO empezado todavía)
+## Fase 2d — Detalle de lo hecho (COMPLETA)
 
-- `ZLibraryAuthModal.svelte` (~100 líneas, formulario simple con tabs
-  password/remix). Ya leído en la Fase 1 al analizar `+layout.svelte`.
-  Conectar a `onOpenZLibraryLogin`/`onLogoutZLibrary` que hoy son
-  `notImplemented()` en `integrations-pane.tsx` (Fase 2b) y no-ops al pasar
-  por `+layout.svelte` original en `sidebar.tsx` (zlibName/showModal no se
-  han portado aún a ningún lado).
-- Confirmar que `toastStore.svelte.ts` se reemplaza limpiamente por la API
-  de `sonner` (`toast.success`/`toast.error`) — ya se viene usando así
-  desde 2c, así que esto es más bien verificar que no falta ningún caso de
-  uso al portar el resto de `+layout.svelte`.
+**Decisión tomada con el usuario:** el login de Z-Library autentica contra
+un servicio externo real (vía `ZLibAuthService` → `ZUI.passwordLogin` /
+`tokenLogin` → `/api/*`), a diferencia de los shelves no hay un "éxito
+local" con sentido — fabricar un estado "Conectado" falso sería engañoso.
+Se eligió: **formulario 100% interactivo (tabs, inputs, validación de
+campos requeridos) pero submit mock** — al enviar, muestra el toast de
+`notImplemented()` y el modal se queda abierto (no finge una conexión
+exitosa). Mismo patrón que Account/Devices/Plugin en 2b.
 
-Después de 2d, el root layout real (`src/app/layout.tsx`) necesita recibir
-de vuelta: el modal de Z-Library, el registro del service worker, y el
-warning de migración de DB — todo lo que se dejó fuera del shell en 2a.
+### Archivos creados
+- `src/components/zlibrary-auth-modal.tsx` — puerto de
+  `ZLibraryAuthModal.svelte`: tabs Email Login/Remix Credentials, campos
+  con labels dinámicos según el modo, botón Connect deshabilitado hasta que
+  ambos campos tengan contenido. Sin estado de error/loading porque el
+  submit no hace una llamada real (eso llega con la Fase 3).
+- Cambios de wiring:
+  - `src/components/sidebar/settings/settings-modal.tsx` — ahora recibe
+    `onOpenZLibraryLogin` como prop en vez de llamar `notImplemented()`
+    directamente; se lo pasa a `IntegrationsPane`.
+  - `src/app/(app)/layout.tsx` — nuevo estado `zlibModalOpen`, renderiza
+    `<ZLibraryAuthModal>` como hermano de `<SettingsModal>`, mismo patrón
+    que el resto de modales de la app.
+  - `onLogoutZLibrary` en `integrations-pane.tsx` **sigue** en
+    `notImplemented()` — no necesita modal, es una acción directa.
+
+### Verificación
+`bun run build` compila limpio. Verificado con Playwright: abrir el modal
+desde Integrations, cambiar entre tabs, llenar campos (password y remix),
+enviar y confirmar que aparece el toast y el modal no se cierra — en light
+y dark, sin errores de consola.
+
+---
+
+## Fase 2 — COMPLETA. Qué queda pendiente antes de Fase 3
+
+Estas piezas del `+layout.svelte` original **todavía no se portaron a
+ningún lado** (se dejaron fuera del shell desde la Fase 2a a propósito):
+
+- **Registro del service worker** (`navigator.serviceWorker.register(...)`)
+  — es JS puro sin dependencias de SvelteKit ni de backend, se podría
+  portar en cualquier momento (candidata a hacerse al arrancar la Fase 3,
+  o como un paso rápido aparte si se quiere cerrar el root layout antes).
+- **Warning de migración de DB** (`databaseMigrationWarning` /
+  `shouldShowDatabaseMigrationWarning`, visible arriba del contenido
+  cuando `appVersionInfo.database.status` no es `up_to_date`) — depende de
+  datos reales de `/api/app-version`, así que tiene sentido esperar a la
+  Fase 3 para portarlo con datos de verdad en vez de mock.
+
+No son bloqueantes para arrancar la Fase 3 — son huecos conocidos, no
+errores.
 
 ---
 
@@ -319,19 +355,17 @@ warning de migración de DB — todo lo que se dejó fuera del shell en 2a.
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
-> `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — Fase 1, 2a
-> (shell visual), 2b (modal de Settings, datos mock) y 2c (shelf manager,
-> CRUD local funcional) ya están cerradas y verificadas visualmente. Vamos a
-> arrancar la Fase 2d (Z-Library): necesito que leas
-> `sake/src/lib/components/layout/ZLibraryAuthModal/ZLibraryAuthModal.svelte`
-> y la parte de `sake/src/routes/+layout.svelte` relacionada con
-> `showModal`/`zlibName`/`handleLogin`/`handleZLibraryLogout` (ya la vimos
-> en la Fase 1) y me propongas la reconstrucción como componente de
-> `sake-next/` con Tailwind v4 + shadcn (preset `base-nova`, ya fijado — no
-> volver a preguntar por "New York"), mobile-first, con dark/light real vía
-> `next-themes`. Esto tiene que conectarse con los dos `notImplemented()`
-> de `integrations-pane.tsx` (`onOpenZLibraryLogin`/`onLogoutZLibrary`, de
-> la Fase 2b) — evaluar si conviene mantenerlos mock (login real es Fase 3,
-> pega contra `/api/auth/zlibrary`) o dejar el formulario funcional con
-> estado local igual que se hizo con los shelves en 2c. Plantear esa
-> decisión antes de escribir código.
+> `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — **la Fase 2
+> está completa** (2a shell visual, 2b Settings modal, 2c shelf manager, 2d
+> Z-Library auth modal), todas verificadas visualmente con Playwright y sin
+> errores de consola. Vamos a arrancar la Fase 3 (rutas de API y utilidades
+> de servidor). Antes de elegir qué migrar primero, dame un resumen de qué
+> rutas/endpoints existen en `sake/src/routes/api/` (o donde estén) y su
+> tamaño, para decidir el orden igual que se hizo con los mini-pasos de la
+> Fase 2 — probablemente convenga empezar por lo que ya bloquea componentes
+> ya migrados: `getLibsqlConfig`/infra (ya movido en Fase 1), el logger
+> (pendiente, bloqueaba `logResolvedConfig` desde la Fase 1), y los
+> endpoints de shelves/settings/zlibrary-auth que hoy están mockeados en
+> `sake-next/src/components/sidebar/`. Antes de escribir código, plantea el
+> alcance de esta primera mini-fase de Fase 3 como se ha hecho en todas las
+> anteriores.

@@ -43,9 +43,10 @@ function formatDateTime(value: string | null): string {
 interface SettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onOpenZLibraryLogin: () => void;
 }
 
-export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
+export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<SectionId>("app");
 
   return (
@@ -98,7 +99,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                 error={null}
                 zlibName=""
                 showZLibraryLogin
-                onOpenZLibraryLogin={() => notImplemented("Connecting Z-Library (Phase 2d)")}
+                onOpenZLibraryLogin={onOpenZLibraryLogin}
                 onLogoutZLibrary={() => notImplemented("Logging out of Z-Library (Phase 2d)")}
                 formatDateTime={formatDateTime}
                 initialMirrors={mockZlibraryMirrors}
