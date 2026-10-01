@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/sidebar/sidebar";
 import { AppTopBar } from "@/components/layout/app-topbar";
@@ -52,13 +52,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-dvh">
-      <Sidebar
-        collapsed={collapsed}
-        mobileOpen={mobileOpen}
-        onToggleCollapsed={toggleCollapsed}
-        onCloseMobile={() => setMobileOpen(false)}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
+      <Suspense fallback={null}>
+        <Sidebar
+          collapsed={collapsed}
+          mobileOpen={mobileOpen}
+          onToggleCollapsed={toggleCollapsed}
+          onCloseMobile={() => setMobileOpen(false)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      </Suspense>
 
       <div
         className={cn(

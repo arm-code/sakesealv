@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Archive,
   BarChart3,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -18,6 +19,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getMenuItems, type MenuItem } from "@/lib/types/navigation";
+import { useShelfManager } from "./shelves/use-shelf-manager";
+import { ShelvesSection } from "./shelves/shelves-section";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ShelfRulesModal } from "./shelves/shelf-rules-modal";
 
 const NAV_ICONS: Record<string, LucideIcon> = {
   search: Search,
@@ -52,9 +57,27 @@ export function Sidebar({
   onOpenSettings,
 }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const menuItems = getMenuItems(searchEnabled);
 
+  const isLibraryActive = pathname === "/library";
+  const rawShelfId = isLibraryActive ? searchParams.get("shelf") : null;
+  const parsedShelfId = rawShelfId ? Number.parseInt(rawShelfId, 10) : null;
+  const selectedShelfId = parsedShelfId && Number.isInteger(parsedShelfId) && parsedShelfId > 0 ? parsedShelfId : null;
+
+  const shelfManager = useShelfManager({
+    selectedShelfId,
+    onSelectedShelfRemoved: () => router.push("/library"),
+  });
+
+  function handleSelectShelf(shelfId: number): void {
+    onCloseMobile();
+    router.push(`/library?shelf=${shelfId}`);
+  }
+
   return (
+    <>
     <aside
       className={cn(
         "fixed inset-y-0 left-0 z-40 flex h-dvh w-[min(84vw,300px)] flex-col overflow-x-hidden border-r border-sidebar-border bg-sidebar transition-transform duration-200 lg:translate-x-0 lg:transition-[width]",
@@ -93,23 +116,56 @@ export function Sidebar({
           {menuItems.map((item) => {
             const Icon = item.icon ? NAV_ICONS[item.icon] : undefined;
             const active = isItemActive(pathname, item);
+            const navLink = (
+              <Link
+                href={item.href}
+                onClick={onCloseMobile}
+                title={collapsed ? item.label : undefined}
+                className={cn(
+                  "flex min-w-0 flex-1 items-center gap-[0.65rem] rounded-md border border-transparent px-3 py-[0.62rem] text-sm font-medium text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  active && "bg-sidebar-accent text-sidebar-accent-foreground",
+                  collapsed && "lg:justify-center lg:gap-0 lg:px-[0.62rem]",
+                )}
+              >
+                {Icon ? <Icon className="size-[1.1rem] shrink-0" aria-hidden="true" /> : null}
+                <span className={cn("truncate", collapsed && "lg:hidden")}>{item.label}</span>
+              </Link>
+            );
+
+            if (item.id !== "library") {
+              return <li key={item.id}>{navLink}</li>;
+            }
+
             return (
               <li key={item.id}>
-                <Link
-                  href={item.href}
-                  onClick={onCloseMobile}
-                  title={collapsed ? item.label : undefined}
-                  className={cn(
-                    "flex items-center gap-[0.65rem] rounded-md border border-transparent px-3 py-[0.62rem] text-sm font-medium text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                    active && "bg-sidebar-accent text-sidebar-accent-foreground",
-                    collapsed && "lg:justify-center lg:gap-0 lg:px-[0.62rem]",
-                  )}
-                >
-                  {Icon ? <Icon className="size-[1.1rem] shrink-0" aria-hidden="true" /> : null}
-                  <span className={cn("truncate", collapsed && "lg:hidden")}>
-                    {item.label}
-                  </span>
-                </Link>
+                <div className="flex items-center gap-0.5">
+                  {navLink}
+                  <button
+                    type="button"
+                    onClick={() => shelfManager.setShelvesExpanded((expanded) => !expanded)}
+                    aria-label={shelfManager.shelvesExpanded ? "Collapse shelves" : "Expand shelves"}
+                    className={cn(
+                      "flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                      collapsed && "lg:hidden",
+                    )}
+                  >
+                    <ChevronDown
+                      className={cn("size-3.5 transition-transform", shelfManager.shelvesExpanded && "rotate-180")}
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
+
+                {shelfManager.shelvesExpanded && (
+                  <div className={cn("mt-0.5", collapsed && "lg:hidden")}>
+                    <ShelvesSection
+                      manager={shelfManager}
+                      selectedShelfId={selectedShelfId}
+                      isLibraryActive={isLibraryActive}
+                      onSelectShelf={handleSelectShelf}
+                    />
+                  </div>
+                )}
               </li>
             );
           })}
@@ -132,6 +188,28 @@ export function Sidebar({
         </button>
       </div>
     </aside>
+
+    <ConfirmDialog
+      open={shelfManager.showDeleteShelfModal}
+      title="Delete shelf?"
+      message="Books stay in your library. Only shelf assignments will be removed."
+      confirmLabel="Delete"
+      danger
+      onConfirm={shelfManager.confirmDeleteShelf}
+      onCancel={shelfManager.cancelDeleteShelf}
+    />
+
+    {shelfManager.rulesModalShelf && (
+      <ShelfRulesModal
+        open={shelfManager.rulesModalShelf !== null}
+        shelfName={shelfManager.rulesModalShelf.name}
+        shelfIcon={shelfManager.rulesModalShelf.icon}
+        initialRuleGroup={shelfManager.rulesModalShelf.ruleGroup}
+        onClose={shelfManager.closeRulesModal}
+        onSave={shelfManager.handleSaveShelfRules}
+      />
+    )}
+    </>
   );
 }
 

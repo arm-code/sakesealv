@@ -20,8 +20,8 @@ sin saltar a la siguiente hasta cerrar la actual.
 2. 🔜 **Fase 2 — Componentes base y refactor de estilos.** (EN CURSO)
    - ✅ 2a — Shell visual (Sidebar, AppTopBar, MobileSidebarBackdrop, route groups). COMPLETA.
    - ✅ 2b — Settings modal (shell + 5 panes, datos mock). COMPLETA.
-   - ⬜ 2c — Shelf manager (drag&drop, emoji picker, ShelfRulesModal).
-   - ⬜ 2d — ZLibraryAuthModal + ConfirmModal.
+   - ✅ 2c — Shelf manager (CRUD local, drag&drop, reglas, emoji picker). COMPLETA.
+   - ⬜ 2d — ZLibraryAuthModal.
 3. ⬜ **Fase 3 — Rutas de API y utilidades de servidor.**
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
@@ -219,23 +219,98 @@ consola tras el fix de `nativeButton`.
 
 ---
 
-## Fase 2c/2d — Qué sigue (NO empezado todavía)
+## Fase 2c — Detalle de lo hecho (COMPLETA)
 
-- **2c — Shelf manager.** `SidebarShelvesSection.svelte` (136 líneas) +
-  `sidebarShelfManager.svelte.ts` (437 líneas, drag&drop + emoji picker) +
-  `SidebarShelfContextMenu.svelte` (39 líneas) + `ShelfRulesModal.svelte`
-  (164 líneas) + `ConfirmModal.svelte` (73 líneas, genérico — probablemente
-  conviene como primitivo shadcn-style reusable). Esto también reactiva la
-  fila especial "Library" con el chevron de expandir en `sidebar.tsx`.
-- **2d — Z-Library + Toast.** `ZLibraryAuthModal.svelte` (ya leído, ~100
-  líneas, formulario simple con tabs) + confirmar que `toastStore.svelte.ts`
-  (49 líneas) se reemplaza limpiamente por la API de `sonner`
-  (`toast.success(...)`, `toast.error(...)`) en vez de portar
-  `ToastContainer`/`Toast.svelte`.
+**Decisión clave de esta fase (distinta a 2a/2b):** a diferencia del modal
+de Settings, los datos de shelves **no** son fundamentalmente de servidor
+— son una lista que se puede mutar localmente de forma coherente. Así que
+en vez de usar `notImplemented()` para las acciones, el CRUD completo
+(crear/renombrar/borrar/reordenar/guardar reglas) está **100% funcional
+contra estado local de React** (`useState` seedeado con `mock-shelves.ts`),
+con toasts de éxito reales (`toast.success(...)`) igual que hacía el
+original. La Fase 3 solo tiene que reemplazar el backing store (de
+`useState` local a `shelfStore` + llamadas a `/api/shelves`) sin tocar la
+UI, porque la superficie de funciones del hook ya es la misma forma.
 
-Después de 2b/2c/2d, el root layout real (`src/app/layout.tsx`) necesita
-recibir de vuelta: el modal de Z-Library, el registro del service worker, y
-el warning de migración de DB — todo lo que se dejó fuera del shell en 2a.
+### Modernización respecto al Svelte original
+- **Menú contextual del shelf:** el original (`SidebarShelfContextMenu.svelte`)
+  calculaba posición manualmente (`getBoundingClientRect`) y renderizaba un
+  backdrop a mano. Reemplazado por `DropdownMenu` de shadcn (Base UI) —
+  posicionamiento, cierre al hacer click fuera y teclado los resuelve la
+  librería. El archivo `SidebarShelfContextMenu.svelte` **no se portó como
+  componente aparte**, quedó inline en `shelf-row.tsx`.
+- **Selector de emoji:** reemplazado por `Popover` de shadcn en vez del
+  backdrop+grid absoluto-posicionado manual.
+- **Modal de reglas:** `Dialog` de shadcn resuelve foco/Escape/aria-modal
+  nativamente — se eliminó el código manual de focus-trap con `tick()` +
+  listeners de teclado que tenía `ShelfRulesModal.svelte`.
+- `ConfirmModal.svelte` se convirtió en `src/components/confirm-dialog.tsx`,
+  **genérico y reutilizable** (no específico de shelves) como sugería la
+  nota de la Fase 2a, usando `Dialog` de shadcn.
+- `ShelfRulesHeader`/`ShelfRulesFooter`/`ShelfRulesEmptyState` originales
+  (19–29 líneas cada uno) se consolidaron **inline dentro de**
+  `shelf-rules-modal.tsx` en vez de archivos separados — eran de un solo uso
+  y muy pequeños.
+
+### Archivos creados
+- `src/lib/types/library.ts` — `LibraryShelf`, `RuleGroup`/`RuleNode`/
+  `ShelfCondition`, `RULE_FIELD_OPTIONS`, `countRuleConditions`,
+  `createEmptyRuleGroup` (puerto 1:1 de `Library/Shelf.ts` +
+  `Library/ShelfRule.ts`, sin `isRuleGroup`/`parseRuleGroup` — esos son
+  validadores de payload de API, se añaden en Fase 3).
+- `src/lib/shelf-rules.ts` — puerto 1:1 de `shelfRulesView.ts` (operadores,
+  `createRuleCondition`/`createRuleGroup`, helpers de tipo/placeholder).
+- `src/components/confirm-dialog.tsx` — genérico, como se comentó arriba.
+- `src/components/sidebar/shelves/`:
+  - `mock-shelves.ts` — 3 shelves de ejemplo (una con regla simple, una sin
+    reglas, una con grupo anidado OR/AND) para poder probar el árbol de
+    reglas visualmente.
+  - `use-shelf-manager.ts` — hook que porta `sidebarShelfManager.svelte.ts`
+    completo: estado de crear/renombrar/borrar/menú/reglas, **y el drag
+    reorder por long-press con Pointer Events portado tal cual** (mismo
+    umbral de 360ms y 8px de cancelación), pero simplificado porque ya no
+    hay paso de "persist" asíncrono que pueda fallar — el reorder local ES
+    la persistencia.
+  - `shelf-row.tsx`, `shelf-edit-row.tsx`, `shelves-section.tsx` — puertos
+    de `SidebarShelfRow`/`SidebarShelfEditRow`/`SidebarShelvesSection`.
+  - `shelf-rule-condition-row.tsx`, `shelf-rule-group-header.tsx`,
+    `shelf-rules-tree-node.tsx` (recursivo) — puertos de
+    `ShelfRuleConditionRow`/`ShelfRuleGroupHeader`/`ShelfRulesTreeNode`.
+  - `shelf-rules-modal.tsx` — puerto de `ShelfRulesModal` + sub-componentes
+    inline (ver modernización arriba).
+- `src/components/sidebar/sidebar.tsx` — la fila "Library" ahora tiene el
+  chevron de expandir real, conectado a `useShelfManager`; además ahora lee
+  `useSearchParams()` (shelf activo desde `?shelf=`) — **esto obligó a
+  envolver `<Sidebar />` en `<Suspense>`** dentro de
+  `src/app/(app)/layout.tsx` (Next.js exige esto para cualquier Client
+  Component que use `useSearchParams`, si no falla el build con
+  "should be wrapped in a suspense boundary").
+
+### Verificación
+`bun run build` compila limpio. Probado con Playwright headless el flujo
+completo: listar shelves, abrir menú contextual, abrir reglas (incluyendo
+el caso con grupo anidado), crear shelf, confirmar borrado con el nuevo
+`ConfirmDialog`, y el drawer móvil con la sección de shelves dentro — sin
+errores de consola en ningún paso.
+
+---
+
+## Fase 2d — Qué sigue (NO empezado todavía)
+
+- `ZLibraryAuthModal.svelte` (~100 líneas, formulario simple con tabs
+  password/remix). Ya leído en la Fase 1 al analizar `+layout.svelte`.
+  Conectar a `onOpenZLibraryLogin`/`onLogoutZLibrary` que hoy son
+  `notImplemented()` en `integrations-pane.tsx` (Fase 2b) y no-ops al pasar
+  por `+layout.svelte` original en `sidebar.tsx` (zlibName/showModal no se
+  han portado aún a ningún lado).
+- Confirmar que `toastStore.svelte.ts` se reemplaza limpiamente por la API
+  de `sonner` (`toast.success`/`toast.error`) — ya se viene usando así
+  desde 2c, así que esto es más bien verificar que no falta ningún caso de
+  uso al portar el resto de `+layout.svelte`.
+
+Después de 2d, el root layout real (`src/app/layout.tsx`) necesita recibir
+de vuelta: el modal de Z-Library, el registro del service worker, y el
+warning de migración de DB — todo lo que se dejó fuera del shell en 2a.
 
 ---
 
@@ -245,22 +320,18 @@ Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
 > `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — Fase 1, 2a
-> (shell visual) y 2b (modal de Settings, datos mock) ya están cerradas y
-> verificadas visualmente. Vamos a arrancar la Fase 2c (shelf manager):
-> necesito que leas
-> `sake/src/lib/components/sidebar/SidebarShelvesSection/SidebarShelvesSection.svelte`,
-> `sake/src/lib/components/sidebar/Sidebar/sidebarShelfManager.svelte.ts`,
-> `sake/src/lib/components/sidebar/SidebarShelfContextMenu/SidebarShelfContextMenu.svelte`,
-> `sake/src/lib/components/shelfRules/ShelfRulesModal/ShelfRulesModal.svelte`
-> y
-> `sake/src/lib/components/ConfirmModal/ConfirmModal.svelte`
-> y me propongas la reconstrucción como componente(s) de `sake-next/` con
-> Tailwind v4 + shadcn (preset `base-nova`, ya fijado — no volver a
-> preguntar por "New York"), mobile-first, con dark/light real vía
-> `next-themes`. Mismo patrón que 2a/2b: si el shelf manager depende de
-> rutas `/api/*` que no existen todavía (Fase 3), usar datos mock y el
-> helper `notImplemented()` de
-> `sake-next/src/components/sidebar/settings/not-implemented.ts` para las
-> acciones — no bloquear la UI esperando a la Fase 3. Esto también reactiva
-> la fila especial "Library" con el chevron de expandir en
-> `src/components/sidebar/sidebar.tsx` (actualmente simplificada en 2a).
+> (shell visual), 2b (modal de Settings, datos mock) y 2c (shelf manager,
+> CRUD local funcional) ya están cerradas y verificadas visualmente. Vamos a
+> arrancar la Fase 2d (Z-Library): necesito que leas
+> `sake/src/lib/components/layout/ZLibraryAuthModal/ZLibraryAuthModal.svelte`
+> y la parte de `sake/src/routes/+layout.svelte` relacionada con
+> `showModal`/`zlibName`/`handleLogin`/`handleZLibraryLogout` (ya la vimos
+> en la Fase 1) y me propongas la reconstrucción como componente de
+> `sake-next/` con Tailwind v4 + shadcn (preset `base-nova`, ya fijado — no
+> volver a preguntar por "New York"), mobile-first, con dark/light real vía
+> `next-themes`. Esto tiene que conectarse con los dos `notImplemented()`
+> de `integrations-pane.tsx` (`onOpenZLibraryLogin`/`onLogoutZLibrary`, de
+> la Fase 2b) — evaluar si conviene mantenerlos mock (login real es Fase 3,
+> pega contra `/api/auth/zlibrary`) o dejar el formulario funcional con
+> estado local igual que se hizo con los shelves en 2c. Plantear esa
+> decisión antes de escribir código.
