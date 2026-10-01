@@ -19,7 +19,7 @@ sin saltar a la siguiente hasta cerrar la actual.
 1. ✅ **Fase 1 — Setup inicial.** (COMPLETA)
 2. 🔜 **Fase 2 — Componentes base y refactor de estilos.** (EN CURSO)
    - ✅ 2a — Shell visual (Sidebar, AppTopBar, MobileSidebarBackdrop, route groups). COMPLETA.
-   - ⬜ 2b — SidebarSettingsModal + controller.
+   - ✅ 2b — Settings modal (shell + 5 panes, datos mock). COMPLETA.
    - ⬜ 2c — Shelf manager (drag&drop, emoji picker, ShelfRulesModal).
    - ⬜ 2d — ZLibraryAuthModal + ConfirmModal.
 3. ⬜ **Fase 3 — Rutas de API y utilidades de servidor.**
@@ -159,14 +159,68 @@ vez.**
 
 ---
 
-## Fase 2b/2c/2d — Qué sigue (NO empezado todavía)
+## Fase 2b — Detalle de lo hecho (COMPLETA)
 
-Mini-fases pendientes, en este orden sugerido:
+**Mismo patrón que 2a:** el controller real (`sidebarSettingsController.svelte.ts`,
+396 líneas) depende de `AuthService`, `ZLibAuthService` y `ZUI` (cliente que
+pega contra `/api/*`), que no existen todavía en `sake-next` (Fase 3). Se
+acordó con el usuario construir **el modal completo (shell + 5 panes) con
+datos mock/estáticos** y acciones wireadas a un helper `notImplemented()`
+que muestra un toast ("... will be wired up in Phase 3") en vez de no-ops
+silenciosos — mejor feedback visual al revisar la UI.
 
-- **2b — Settings modal.** `SidebarSettingsModal.svelte` (284 líneas) +
-  `sidebarSettingsController.svelte.ts` (396 líneas). Maneja API keys,
-  devices, versión de la app, plugins de KOReader, sync de Hardcover,
-  logout. Pedir estos dos archivos al usuario.
+### Dependencias de UI nuevas
+- shadcn: `dialog`, `tabs`, `switch`, `badge`, `input`, `label` (vía
+  `bunx shadcn add`). El modal usa `Dialog` + `Tabs` (orientación horizontal,
+  variant `"line"`) en vez de portar el backdrop/focus-trap manual del
+  Svelte original — Base UI ya resuelve foco, Escape, aria-modal, etc.
+- **Gotcha de Base UI:** el `Button` de shadcn (`@base-ui/react/button`)
+  asume `nativeButton=true` por defecto. Al usar `render={<a ... />}` para
+  botones que son en realidad enlaces (descargas, "Open GitHub"), hay que
+  pasar `nativeButton={false}` explícitamente o Base UI tira un warning en
+  consola. Ya corregido en `app-pane.tsx` y `plugin-pane.tsx` — tenerlo en
+  cuenta para cualquier botón-como-link nuevo.
+
+### Archivos creados
+- `src/lib/types/auth.ts`, `plugin.ts`, `integrations.ts`, `app-version.ts`
+  — puertos 1:1 de los `.ts` de tipos originales (sin los wrapper
+  `*Response` de la API, esos se definen en Fase 3 junto a las rutas).
+- `src/lib/utils/database-migration-status.ts` — puerto verbatim de
+  `getDatabaseMigrationStatusNote` (pura, sin deps de SvelteKit).
+- `src/components/sidebar/settings/`:
+  - `settings-modal.tsx` — `Dialog` + `Tabs` horizontal, con scroll en
+    mobile para la fila de tabs.
+  - `app-pane.tsx`, `plugin-pane.tsx`, `integrations-pane.tsx`,
+    `account-pane.tsx`, `devices-pane.tsx`, `api-key-list.tsx` — puertos
+    1:1 de la lógica de presentación de cada pane original, con Tailwind +
+    shadcn (`Button`, `Badge`, `Switch`, `Input`, `Label`) en vez de los
+    `.module.scss`.
+  - `meta-row.tsx` — `<MetaList>`/`<MetaRow>` compartidos (el patrón
+    `dt`/`dd` se repetía en 4 de los 5 panes original — única abstracción
+    nueva introducida, no estaba en el Svelte original pero reduce
+    duplicación real).
+  - `mock-data.ts` — datos de ejemplo para los 5 panes.
+  - `not-implemented.ts` — helper de toast para acciones aún no wireadas.
+- `src/app/(app)/layout.tsx` — ahora posee `settingsOpen` (estado elevado,
+  mismo patrón que `collapsed`/`mobileOpen`), pasado a `Sidebar` (que ya no
+  tiene el `onOpenSettings` no-op de 2a) y a `SettingsModal`.
+
+### Cambio de copy consciente
+El pane "App" original tenía el subtítulo "Svelte and KOReader Ecosystem"
+— se cambió a "Self-hosted e-book reading and sync platform" porque
+mencionar "Svelte" ya no es exacto una vez migrado el frontend a Next/React.
+Si el usuario prefiere otro texto, es un cambio trivial en `app-pane.tsx`.
+
+### Verificación
+`bun run build` compila limpio. Verificado visualmente con Playwright
+headless: las 5 secciones del modal, en light/dark y en desktop (1280px) y
+mobile (390px, con el tab-bar scrolleable horizontalmente). Sin errores de
+consola tras el fix de `nativeButton`.
+
+---
+
+## Fase 2c/2d — Qué sigue (NO empezado todavía)
+
 - **2c — Shelf manager.** `SidebarShelvesSection.svelte` (136 líneas) +
   `sidebarShelfManager.svelte.ts` (437 líneas, drag&drop + emoji picker) +
   `SidebarShelfContextMenu.svelte` (39 líneas) + `ShelfRulesModal.svelte`
@@ -190,16 +244,23 @@ el warning de migración de DB — todo lo que se dejó fuera del shell en 2a.
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
-> `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — Fase 1 y la
-> Fase 2a (shell visual: Sidebar/AppTopBar/route groups) ya están cerradas y
-> verificadas visualmente. Vamos a arrancar la Fase 2b (modal de Settings):
+> `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — Fase 1, 2a
+> (shell visual) y 2b (modal de Settings, datos mock) ya están cerradas y
+> verificadas visualmente. Vamos a arrancar la Fase 2c (shelf manager):
 > necesito que leas
-> `sake/src/lib/components/sidebar/SidebarSettingsModal/SidebarSettingsModal.svelte`
+> `sake/src/lib/components/sidebar/SidebarShelvesSection/SidebarShelvesSection.svelte`,
+> `sake/src/lib/components/sidebar/Sidebar/sidebarShelfManager.svelte.ts`,
+> `sake/src/lib/components/sidebar/SidebarShelfContextMenu/SidebarShelfContextMenu.svelte`,
+> `sake/src/lib/components/shelfRules/ShelfRulesModal/ShelfRulesModal.svelte`
 > y
-> `sake/src/lib/components/sidebar/Sidebar/sidebarSettingsController.svelte.ts`
+> `sake/src/lib/components/ConfirmModal/ConfirmModal.svelte`
 > y me propongas la reconstrucción como componente(s) de `sake-next/` con
 > Tailwind v4 + shadcn (preset `base-nova`, ya fijado — no volver a
 > preguntar por "New York"), mobile-first, con dark/light real vía
-> `next-themes`. El botón Settings en `src/components/sidebar/sidebar.tsx`
-> ya existe con un `onOpenSettings` sin conectar — hay que wirearlo al
-> modal nuevo.
+> `next-themes`. Mismo patrón que 2a/2b: si el shelf manager depende de
+> rutas `/api/*` que no existen todavía (Fase 3), usar datos mock y el
+> helper `notImplemented()` de
+> `sake-next/src/components/sidebar/settings/not-implemented.ts` para las
+> acciones — no bloquear la UI esperando a la Fase 3. Esto también reactiva
+> la fila especial "Library" con el chevron de expandir en
+> `src/components/sidebar/sidebar.tsx` (actualmente simplificada en 2a).

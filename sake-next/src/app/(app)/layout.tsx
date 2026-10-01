@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/sidebar/sidebar";
 import { AppTopBar } from "@/components/layout/app-topbar";
 import { MobileSidebarBackdrop } from "@/components/layout/mobile-sidebar-backdrop";
+import { SettingsModal } from "@/components/sidebar/settings/settings-modal";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
@@ -37,6 +38,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true");
@@ -55,7 +57,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         mobileOpen={mobileOpen}
         onToggleCollapsed={toggleCollapsed}
         onCloseMobile={() => setMobileOpen(false)}
-        onOpenSettings={() => {}}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       <div
@@ -73,6 +75,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       {mobileOpen && <MobileSidebarBackdrop onClose={() => setMobileOpen(false)} />}
+
+      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }

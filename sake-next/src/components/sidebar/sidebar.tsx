@@ -119,7 +119,6 @@ export function Sidebar({
       <div className="border-t border-sidebar-border p-3">
         <button
           type="button"
-          // El modal de ajustes se conecta en la Fase 2b; por ahora el botón es solo visual.
           onClick={onOpenSettings}
           title={collapsed ? "Settings" : undefined}
           aria-label="Open settings"
