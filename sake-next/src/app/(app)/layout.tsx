@@ -1,0 +1,78 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { Sidebar } from "@/components/sidebar/sidebar";
+import { AppTopBar } from "@/components/layout/app-topbar";
+import { MobileSidebarBackdrop } from "@/components/layout/mobile-sidebar-backdrop";
+import { cn } from "@/lib/utils";
+
+const SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
+
+function getSectionLabel(pathname: string): string {
+  switch (pathname) {
+    case "/library":
+      // La resolución del nombre de shelf activo llega con la capa de datos en Fase 3.
+      return "Library";
+    case "/annotations":
+      return "Annotations";
+    case "/queue":
+      return "Queue";
+    case "/search":
+      return "Search";
+    case "/stats":
+      return "Stats";
+    case "/archived":
+      return "Archived";
+    case "/trash":
+      return "Trash";
+    case "/logs":
+      return "Logs";
+    default:
+      return pathname.slice(1).replace(/-/g, " ");
+  }
+}
+
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    setCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true");
+  }, []);
+
+  function toggleCollapsed() {
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+  }
+
+  return (
+    <div className="min-h-dvh">
+      <Sidebar
+        collapsed={collapsed}
+        mobileOpen={mobileOpen}
+        onToggleCollapsed={toggleCollapsed}
+        onCloseMobile={() => setMobileOpen(false)}
+        onOpenSettings={() => {}}
+      />
+
+      <div
+        className={cn(
+          "flex min-h-dvh flex-col transition-[margin-left] duration-200",
+          collapsed ? "lg:ml-18" : "lg:ml-64",
+        )}
+      >
+        <AppTopBar
+          currentSection={getSectionLabel(pathname)}
+          onToggleMobileSidebar={() => setMobileOpen((open) => !open)}
+        />
+
+        <main className="flex-1 overflow-y-auto px-[0.85rem] sm:px-4">{children}</main>
+      </div>
+
+      {mobileOpen && <MobileSidebarBackdrop onClose={() => setMobileOpen(false)} />}
+    </div>
+  );
+}

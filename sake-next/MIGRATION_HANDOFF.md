@@ -17,7 +17,11 @@ sin saltar a la siguiente hasta cerrar la actual.
 ## Fases
 
 1. ✅ **Fase 1 — Setup inicial.** (COMPLETA)
-2. 🔜 **Fase 2 — Componentes base y refactor de estilos.** (EN CURSO, arrancando)
+2. 🔜 **Fase 2 — Componentes base y refactor de estilos.** (EN CURSO)
+   - ✅ 2a — Shell visual (Sidebar, AppTopBar, MobileSidebarBackdrop, route groups). COMPLETA.
+   - ⬜ 2b — SidebarSettingsModal + controller.
+   - ⬜ 2c — Shelf manager (drag&drop, emoji picker, ShelfRulesModal).
+   - ⬜ 2d — ZLibraryAuthModal + ConfirmModal.
 3. ⬜ **Fase 3 — Rutas de API y utilidades de servidor.**
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
@@ -88,43 +92,96 @@ producción sin errores).
 
 ---
 
-## Fase 2 — Qué sigue (NO empezado todavía)
+## Fase 2a — Detalle de lo hecho (COMPLETA)
 
-**Objetivo de esta fase:** reconstruir el shell global de la app
-(`+layout.svelte` → layout(s) de Next) usando Tailwind + shadcn, con dark/light
-real, mobile-first.
+**Descubrimiento importante al arrancar:** `Sidebar.svelte` no es un
+componente aislado — arrastra ~1800 líneas repartidas en 10 archivos
+(`SidebarSettingsModal` + controller de 396 líneas, shelf manager de 437
+líneas con drag&drop, `ShelfRulesModal`, `ConfirmModal`,
+`ZLibraryAuthModal`...). Se decidió con el usuario **acotar la Fase 2 en
+mini-fases** en vez de migrar todo de un tirón. Esta sección (2a) cubrió
+solo el shell visual.
 
-### Ya analizado
-`sake/src/routes/+layout.svelte` — contiene:
-- Shell con sidebar colapsable + topbar + área de contenido.
-- Oculta el chrome en `/` (login) y en `/library/:id/read` (lector).
-- Estado: `sidebarCollapsed`/`sidebarMobileOpen` en `localStorage`, sección
-  activa derivada de la ruta, sesión de Z-Library (modal de login), toasts,
-  registro de service worker, warning de migración de DB.
-- Estilos: variables CSS propias (paleta oscura fija, dorado como accent) —
-  **se reemplazan** por los tokens de shadcn (`--background`, `--primary`,
-  etc.) ya generados en `globals.css`, vía `next-themes` para light/dark real
-  en vez de un tema oscuro hardcodeado.
+### Decisión de arquitectura confirmada: route groups
+- `src/app/(auth)/page.tsx` → login, sin chrome. (Stub por ahora —
+  contenido real en Fase 4.)
+- `src/app/(app)/layout.tsx` → monta `Sidebar` + `AppTopBar` +
+  `MobileSidebarBackdrop`, envuelve el resto de rutas con chrome.
+- `src/app/(app)/library/page.tsx` → stub temporal, solo para poder
+  verificar el shell visualmente. Se reemplaza con la página real en Fase 4.
+- El lector (`/library/[id]/read`) **todavía no existe** — cuando se cree en
+  Fase 4, debe vivir fuera de `(app)` (o en su propio route group) para no
+  heredar el chrome, igual que hacía la regex en el Svelte original.
 
-### Pendiente por revisar (bloqueante para escribir el layout de Next)
-Archivos que el layout referencia y que **aún no se han leído/migrado**:
-1. `sake/src/lib/components/sidebar/Sidebar/Sidebar.svelte` (+ su `.scss` si
-   es archivo separado)
-2. `sake/src/lib/components/layout/AppTopBar/AppTopBar.svelte`
-3. `sake/src/lib/components/layout/MobileSidebarBackdrop/MobileSidebarBackdrop.svelte`
-4. `sake/src/lib/components/ToastContainer/ToastContainer.svelte` (se
-   sustituye por `<Toaster />` de sonner, pero revisar el store
-   `toastStore.svelte.ts` para saber qué API usar al disparar toasts)
-5. `sake/src/lib/components/layout/ZLibraryAuthModal/ZLibraryAuthModal.svelte`
+### Componentes creados
+- `src/components/sidebar/sidebar.tsx` — puerto de `Sidebar.svelte`
+  **solo la parte visual**: logo, nav items (lista estática de
+  `lib/types/navigation.ts`, puerto 1:1 de `Navigation.ts`), botón
+  collapse/expand, botón Settings. Usa tokens de shadcn
+  (`bg-sidebar`, `text-sidebar-foreground`, `border-sidebar-border`,
+  `bg-sidebar-accent`) en vez de la paleta oscura hardcodeada del SCSS
+  original — dark/light reales ahora vía esos tokens + `next-themes`.
+  Iconos: mapeados 1:1 a `lucide-react` (ya es la librería de iconos de
+  shadcn) en vez de portar los wrappers custom de `$lib/assets/icons/*`.
+  **Excluido a propósito** (queda para 2b/2c): la fila especial de
+  "Library" con expand de shelves, `SidebarShelvesSection`, el modal de
+  Settings (el botón está wireado pero `onOpenSettings` es un no-op).
+- `src/components/layout/app-topbar.tsx` — puerto 1:1 de `AppTopBar.svelte`.
+- `src/components/layout/mobile-sidebar-backdrop.tsx` — puerto 1:1 de
+  `MobileSidebarBackdrop.svelte`.
+- `src/app/(app)/layout.tsx` — puerto de la parte de shell de
+  `+layout.svelte`: estado `collapsed`/`mobileOpen` (con persistencia en
+  `localStorage`, mismo key `sidebarCollapsed`), `currentSection` derivado
+  del pathname vía `usePathname()`. **Excluido a propósito** (no es parte
+  del shell visual): el modal de Z-Library, el registro del service worker,
+  el warning de migración de DB — esos vuelven en Fase 2d/3 cuando se porte
+  el resto del root layout original.
+- Breakpoint: el original usaba `900px` a mano; se usó el breakpoint `lg`
+  de Tailwind (1024px) en su lugar — más idiomático, visualmente
+  equivalente.
 
-### Decisión de arquitectura pendiente (proponer al usuario en Fase 2)
-En Next App Router probablemente convenga usar **route groups**:
-- `app/(auth)/page.tsx` → login, sin chrome.
-- `app/(app)/layout.tsx` → sidebar + topbar, envolviendo el resto de rutas.
-- El lector (`/library/[id]/read`) también sin chrome — puede vivir fuera de
-  `(app)` o el layout puede detectarlo igual que hacía Svelte con la regex.
+### Verificación visual (Playwright, headless Chromium vía `npx playwright install chromium`)
+Se levantó `bun run dev` y se capturaron pantallas de `/` y `/library` en
+desktop (1280px) y mobile (390px), light y dark, más el sidebar colapsado y
+el drawer móvil abierto. Todo renderiza correctamente. El único elemento
+"raro" en las capturas (un círculo "N" solapándose con el botón Settings)
+es el indicador de dev-tools de Next.js (`next dev`-only), confirmado por
+DOM (`display: none` correcto en el label cuando está colapsado) y porque
+aparece también en la página de login sin sidebar — no es un bug del
+código.
 
-No está decidido todavía — plantearlo antes de escribir código.
+`bun run build` sigue compilando limpio después de estos cambios.
+
+**No hay skill de proyecto para levantar la app (`.claude/skills/`) —
+si vas a volver a correr el dev server para QA visual, considera generar
+una con `/run-skill-generator` para no repetir el setup de Playwright cada
+vez.**
+
+---
+
+## Fase 2b/2c/2d — Qué sigue (NO empezado todavía)
+
+Mini-fases pendientes, en este orden sugerido:
+
+- **2b — Settings modal.** `SidebarSettingsModal.svelte` (284 líneas) +
+  `sidebarSettingsController.svelte.ts` (396 líneas). Maneja API keys,
+  devices, versión de la app, plugins de KOReader, sync de Hardcover,
+  logout. Pedir estos dos archivos al usuario.
+- **2c — Shelf manager.** `SidebarShelvesSection.svelte` (136 líneas) +
+  `sidebarShelfManager.svelte.ts` (437 líneas, drag&drop + emoji picker) +
+  `SidebarShelfContextMenu.svelte` (39 líneas) + `ShelfRulesModal.svelte`
+  (164 líneas) + `ConfirmModal.svelte` (73 líneas, genérico — probablemente
+  conviene como primitivo shadcn-style reusable). Esto también reactiva la
+  fila especial "Library" con el chevron de expandir en `sidebar.tsx`.
+- **2d — Z-Library + Toast.** `ZLibraryAuthModal.svelte` (ya leído, ~100
+  líneas, formulario simple con tabs) + confirmar que `toastStore.svelte.ts`
+  (49 líneas) se reemplaza limpiamente por la API de `sonner`
+  (`toast.success(...)`, `toast.error(...)`) en vez de portar
+  `ToastContainer`/`Toast.svelte`.
+
+Después de 2b/2c/2d, el root layout real (`src/app/layout.tsx`) necesita
+recibir de vuelta: el modal de Z-Library, el registro del service worker, y
+el warning de migración de DB — todo lo que se dejó fuera del shell en 2a.
 
 ---
 
@@ -133,11 +190,16 @@ No está decidido todavía — plantearlo antes de escribir código.
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
-> `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — Fase 1 ya está
-> cerrada y verificada. Vamos a arrancar la Fase 2: necesito que leas
-> `sake/src/lib/components/sidebar/Sidebar/Sidebar.svelte` y
-> `sake/src/lib/components/layout/AppTopBar/AppTopBar.svelte` (y sus estilos
-> asociados) y me propongas la reconstrucción como componentes de
-> `sake-next/` con Tailwind v4 + shadcn (preset `base-nova`, ya fijado — no
-> volver a preguntar por "New York"), mobile-first, con dark/light real vía
-> `next-themes`.
+> `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — Fase 1 y la
+> Fase 2a (shell visual: Sidebar/AppTopBar/route groups) ya están cerradas y
+> verificadas visualmente. Vamos a arrancar la Fase 2b (modal de Settings):
+> necesito que leas
+> `sake/src/lib/components/sidebar/SidebarSettingsModal/SidebarSettingsModal.svelte`
+> y
+> `sake/src/lib/components/sidebar/Sidebar/sidebarSettingsController.svelte.ts`
+> y me propongas la reconstrucción como componente(s) de `sake-next/` con
+> Tailwind v4 + shadcn (preset `base-nova`, ya fijado — no volver a
+> preguntar por "New York"), mobile-first, con dark/light real vía
+> `next-themes`. El botón Settings en `src/components/sidebar/sidebar.tsx`
+> ya existe con un `onOpenSettings` sin conectar — hay que wirearlo al
+> modal nuevo.
