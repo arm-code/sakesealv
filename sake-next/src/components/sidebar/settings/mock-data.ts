@@ -1,4 +1,3 @@
-import type { AuthApiKey, CurrentUser, RegisteredDevice } from "@/lib/types/auth";
 import type {
   KoreaderPluginReleasesResponse,
   KoreaderPluginUpstreamVersionResponse,
@@ -6,8 +5,9 @@ import type {
 import type { HardcoverProgressSyncStatus } from "@/lib/types/integrations";
 import type { AppVersionResponse } from "@/lib/types/app-version";
 
-// Datos de ejemplo para poder construir y revisar la UI del modal de Settings
-// antes de que la Fase 3 conecte las rutas /api reales.
+// Datos de ejemplo para las pestañas que la Fase 3 todavía no conecta
+// (App/Plugin/Integrations). Account y Devices ya pegan contra /api real
+// desde la Fase 3b — sus mocks se quitaron de aquí.
 
 export const mockAppVersion: AppVersionResponse = {
   version: "0.1.0-dev",
@@ -21,37 +21,6 @@ export const mockAppVersion: AppVersionResponse = {
     needsMigration: false,
   },
 };
-
-export const mockCurrentUser: CurrentUser = {
-  id: 1,
-  username: "demo",
-  isDisabled: false,
-  hasBasicAuthPassword: false,
-  lastLoginAt: new Date().toISOString(),
-  createdAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
-};
-
-export const mockApiKeys: AuthApiKey[] = [
-  {
-    id: 1,
-    deviceId: "kindle-paperwhite-01",
-    keyPreview: "sake_live_••••7f3a",
-    createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-    lastUsedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    expiresAt: null,
-  },
-];
-
-export const mockDevices: RegisteredDevice[] = [
-  {
-    deviceId: "kindle-paperwhite-01",
-    pluginVersion: "1.4.0",
-    createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    lastSeenAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    hasActiveApiKey: true,
-  },
-];
 
 export const mockPluginReleases: KoreaderPluginReleasesResponse = {
   latestVersion: "1.4.0",

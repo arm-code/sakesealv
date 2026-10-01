@@ -1,16 +1,5 @@
+import { request } from "@/lib/client/api-client";
 import type { LibraryShelf, RuleGroup } from "@/lib/types/library";
-
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  });
-  const data = (await response.json()) as T & { error?: string };
-  if (!response.ok) {
-    throw new Error(data.error ?? "Request failed");
-  }
-  return data;
-}
 
 export const ShelvesApi = {
   list: () => request<{ success: true; shelves: LibraryShelf[] }>("/api/library/shelves"),

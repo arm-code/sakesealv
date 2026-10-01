@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { notImplemented } from "./not-implemented";
 import type { AuthApiKey } from "@/lib/types/auth";
 
 interface ApiKeyListProps {
@@ -8,6 +7,8 @@ interface ApiKeyListProps {
   isLoadingApiKeys?: boolean;
   revokingApiKeyId: number | null;
   formatDateTime: (value: string | null) => string;
+  onRefresh: () => void;
+  onRevoke: (apiKeyId: number, deviceId: string) => void;
 }
 
 export function ApiKeyList({
@@ -16,6 +17,8 @@ export function ApiKeyList({
   isLoadingApiKeys = false,
   revokingApiKeyId,
   formatDateTime,
+  onRefresh,
+  onRevoke,
 }: ApiKeyListProps) {
   return (
     <div className="flex flex-col gap-4">
@@ -26,12 +29,7 @@ export function ApiKeyList({
             Masked keys are listed by device ID. Revoke one to force that device to pair again.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => notImplemented("Refreshing API keys")}
-          disabled={isLoadingApiKeys || revokingApiKeyId !== null}
-        >
+        <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoadingApiKeys || revokingApiKeyId !== null}>
           Refresh
         </Button>
       </div>
@@ -54,7 +52,7 @@ export function ApiKeyList({
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={() => notImplemented("Revoking an API key")}
+                  onClick={() => onRevoke(apiKey.id, apiKey.deviceId)}
                   disabled={revokingApiKeyId !== null}
                 >
                   {revokingApiKeyId === apiKey.id ? "Revoking..." : "Revoke"}

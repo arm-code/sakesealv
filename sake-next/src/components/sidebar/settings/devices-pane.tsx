@@ -1,7 +1,6 @@
 import { RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { notImplemented } from "./not-implemented";
 import type { RegisteredDevice } from "@/lib/types/auth";
 
 interface DevicesPaneProps {
@@ -10,6 +9,8 @@ interface DevicesPaneProps {
   isLoadingDevices?: boolean;
   deletingDeviceId: string | null;
   formatDateTime: (value: string | null) => string;
+  onRefresh: () => void;
+  onDelete: (deviceId: string) => void;
 }
 
 export function DevicesPane({
@@ -18,6 +19,8 @@ export function DevicesPane({
   isLoadingDevices = false,
   deletingDeviceId,
   formatDateTime,
+  onRefresh,
+  onDelete,
 }: DevicesPaneProps) {
   return (
     <section className="flex flex-col gap-4">
@@ -28,12 +31,7 @@ export function DevicesPane({
             Manage devices that have connected to this Sake account.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => notImplemented("Refreshing devices")}
-          disabled={isLoadingDevices || deletingDeviceId !== null}
-        >
+        <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoadingDevices || deletingDeviceId !== null}>
           <RefreshCw className="size-4" aria-hidden="true" />
           Refresh
         </Button>
@@ -59,7 +57,7 @@ export function DevicesPane({
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={() => notImplemented("Deleting a device")}
+                  onClick={() => onDelete(device.deviceId)}
                   disabled={deletingDeviceId !== null}
                 >
                   <Trash2 className="size-4" aria-hidden="true" />

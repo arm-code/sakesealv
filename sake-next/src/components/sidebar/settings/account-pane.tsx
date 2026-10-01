@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MetaList, MetaRow } from "./meta-row";
 import { ApiKeyList } from "./api-key-list";
-import { notImplemented } from "./not-implemented";
 import type { AuthApiKey, CurrentUser } from "@/lib/types/auth";
 
 interface AccountPaneProps {
@@ -19,8 +18,16 @@ interface AccountPaneProps {
   isLoadingApiKeys?: boolean;
   revokingApiKeyId: number | null;
   formatDateTime: (value: string | null) => string;
+  onRefreshApiKeys: () => void;
+  onRevokeApiKey: (apiKeyId: number, deviceId: string) => void;
+  onLogout: () => void;
+  onLogoutAll: () => void;
   isLoggingOut?: boolean;
   isLoggingOutEverywhere?: boolean;
+  onSaveBasicAuthPassword: (password: string) => Promise<boolean>;
+  onRemoveBasicAuthPassword: () => Promise<boolean>;
+  isSavingBasicAuthPassword?: boolean;
+  isRemovingBasicAuthPassword?: boolean;
 }
 
 const GENERATED_PASSWORD_LENGTH = 8;
@@ -45,10 +52,28 @@ export function AccountPane({
   isLoadingApiKeys = false,
   revokingApiKeyId,
   formatDateTime,
+  onRefreshApiKeys,
+  onRevokeApiKey,
+  onLogout,
+  onLogoutAll,
   isLoggingOut = false,
   isLoggingOutEverywhere = false,
+  onSaveBasicAuthPassword,
+  onRemoveBasicAuthPassword,
+  isSavingBasicAuthPassword = false,
+  isRemovingBasicAuthPassword = false,
 }: AccountPaneProps) {
   const [basicAuthPassword, setBasicAuthPassword] = useState("");
+
+  async function handleSave(): Promise<void> {
+    const saved = await onSaveBasicAuthPassword(basicAuthPassword);
+    if (saved) setBasicAuthPassword("");
+  }
+
+  async function handleRemove(): Promise<void> {
+    const removed = await onRemoveBasicAuthPassword();
+    if (removed) setBasicAuthPassword("");
+  }
 
   return (
     <section className="flex flex-col gap-6">
@@ -105,6 +130,7 @@ export function AccountPane({
               onChange={(event) => setBasicAuthPassword(event.target.value)}
               placeholder="Enter a new Basic authentication password"
               autoComplete="new-password"
+              disabled={isSavingBasicAuthPassword || isRemovingBasicAuthPassword}
             />
             <Button
               type="button"
@@ -113,6 +139,7 @@ export function AccountPane({
               onClick={() => setBasicAuthPassword(generatePassword())}
               aria-label="Generate random Basic authentication password"
               title="Generate random password"
+              disabled={isSavingBasicAuthPassword || isRemovingBasicAuthPassword}
             >
               <RefreshCw className="size-4" aria-hidden="true" />
             </Button>
@@ -120,18 +147,19 @@ export function AccountPane({
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              onClick={() => notImplemented("Saving the Basic authentication password")}
-              disabled={!basicAuthPassword}
+              onClick={() => void handleSave()}
+              disabled={!basicAuthPassword || isSavingBasicAuthPassword || isRemovingBasicAuthPassword}
             >
-              Save Basic Authentication Password
+              {isSavingBasicAuthPassword ? "Saving..." : "Save Basic Authentication Password"}
             </Button>
             {currentUser?.hasBasicAuthPassword && (
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => notImplemented("Removing the Basic authentication password")}
+                onClick={() => void handleRemove()}
+                disabled={isRemovingBasicAuthPassword || isSavingBasicAuthPassword}
               >
-                Remove Separate Basic Authentication Password
+                {isRemovingBasicAuthPassword ? "Removing..." : "Remove Separate Basic Authentication Password"}
               </Button>
             )}
           </div>
@@ -146,6 +174,8 @@ export function AccountPane({
         isLoadingApiKeys={isLoadingApiKeys}
         revokingApiKeyId={revokingApiKeyId}
         formatDateTime={formatDateTime}
+        onRefresh={onRefreshApiKeys}
+        onRevoke={onRevokeApiKey}
       />
 
       <div className="h-px bg-border" />
@@ -155,12 +185,7 @@ export function AccountPane({
           <h4 className="text-base font-semibold text-foreground">Browser Session</h4>
           <p className="text-sm text-muted-foreground">End the current Sake session for this browser.</p>
         </div>
-        <Button
-          variant="outline"
-          className="w-fit"
-          onClick={() => notImplemented("Logging out")}
-          disabled={isLoggingOut}
-        >
+        <Button variant="outline" className="w-fit" onClick={onLogout} disabled={isLoggingOut}>
           {isLoggingOut ? "Logging out..." : "Log Out This Browser"}
         </Button>
       </div>
@@ -174,12 +199,7 @@ export function AccountPane({
             Revoke all sessions and API keys across every device.
           </p>
         </div>
-        <Button
-          variant="destructive"
-          className="w-fit"
-          onClick={() => notImplemented("Logging out of all devices")}
-          disabled={isLoggingOutEverywhere}
-        >
+        <Button variant="destructive" className="w-fit" onClick={onLogoutAll} disabled={isLoggingOutEverywhere}>
           <LogOut className="size-4" aria-hidden="true" />
           {isLoggingOutEverywhere ? "Logging out..." : "Log Out of All Devices"}
         </Button>

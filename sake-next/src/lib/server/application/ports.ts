@@ -7,6 +7,7 @@ import type {
   UserApiKey,
   UserSession,
 } from "@/lib/server/domain/auth";
+import type { Device } from "@/lib/server/domain/device";
 
 export interface UserRepositoryPort {
   count(): Promise<number>;
@@ -41,4 +42,23 @@ export interface ShelfRepositoryPort {
   update(id: number, input: { name: string; icon: string; ruleGroup: RuleGroup }): Promise<LibraryShelf | undefined>;
   reorder(shelfIds: number[]): Promise<void>;
   delete(id: number): Promise<void>;
+}
+
+// Recortado a lo que usan ListDevicesUseCase/DeleteDeviceUseCase. `upsert` y
+// `getByDeviceId` son del flujo de pairing del plugin KOReader
+// (CreateDeviceApiKeyUseCase) — fuera de alcance en 3b, no se portó.
+export interface DeviceRepositoryPort {
+  listByUserId(userId: number): Promise<Device[]>;
+  getByUserIdAndDeviceId(userId: number, deviceId: string): Promise<Device | undefined>;
+  deleteByUserIdAndDeviceId(userId: number, deviceId: string): Promise<boolean>;
+}
+
+// Recortado a lo único que usa DeleteDeviceUseCase.
+export interface DeviceDownloadRepositoryPort {
+  deleteByDeviceId(deviceId: string): Promise<void>;
+}
+
+// Recortado a lo único que usa DeleteDeviceUseCase.
+export interface DeviceProgressDownloadRepositoryPort {
+  deleteByDeviceId(deviceId: string): Promise<void>;
 }

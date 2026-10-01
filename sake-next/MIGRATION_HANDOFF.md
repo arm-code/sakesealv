@@ -24,7 +24,8 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 2d — ZLibraryAuthModal (formulario interactivo, submit mock).
 3. 🔜 **Fase 3 — Rutas de API y utilidades de servidor.** (EN CURSO)
    - ✅ 3a — Logger + auth local (bootstrap/login/logout/status) + Shelves end-to-end.
-   - ⬜ 3b+ — el resto: library/books, zlibrary, OPDS, DAV, devices, annotations, queue, stats, metadata, logs streaming...
+   - ✅ 3b — Account pane (me/api-keys/logout-all/basic-password) + Devices pane end-to-end.
+   - ⬜ 3c+ — el resto: library/books, zlibrary, OPDS, DAV, annotations, queue, stats, metadata, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
 ---
@@ -480,36 +481,123 @@ borrar, reload, logout, confirmar 401. Sin errores de consola inesperados.
 
 ---
 
+## Fase 3b — Detalle de lo hecho (COMPLETA)
+
+**Alcance confirmado al leer los archivos propuestos:** las pestañas
+Account (`auth/me`, `auth/api-keys`, `auth/logout-all`,
+`auth/basic-password`) y Devices del modal de Settings, mockeadas desde la
+Fase 2b. Todo el código leído era pequeño (~700 líneas totales, menos que
+3a) — **no hubo necesidad de re-acotar con el usuario**, a diferencia de lo
+que pasó con el login en 3a.
+
+### Descubrimiento: `CreateDeviceApiKeyUseCase` no era parte de esta UI
+El prompt de continuación listaba `CreateDeviceApiKeyUseCase` como posible
+dependencia. Al leerlo: es el flujo de **pairing del plugin KOReader**
+(`POST /api/auth/device-key` con username+password+deviceId → emite una API
+key) — una ruta completamente distinta a la que usa el modal de Settings.
+**No se portó.** Los `Device*RepositoryPort` se recortaron en consecuencia
+(`ports.ts`) a solo los métodos que sí usan `ListDevicesUseCase`/
+`DeleteDeviceUseCase` — `upsert`/`getByDeviceId` del repo de devices y la
+mayoría de métodos de `DeviceDownloadRepository`/
+`DeviceProgressDownloadRepository` (son del flujo de descargas de
+libros, Fase de library/books) quedaron fuera.
+
+### Archivos creados
+- `src/lib/server/domain/device.ts` — entidad `Device`.
+- `ports.ts` ganó `DeviceRepositoryPort`/`DeviceDownloadRepositoryPort`/
+  `DeviceProgressDownloadRepositoryPort`, recortados como se explicó arriba.
+- 3 repositorios nuevos (`device-repository.ts`,
+  `device-download-repository.ts`, `device-progress-download-repository.ts`),
+  también recortados a los métodos usados.
+- 8 use-cases nuevos: `get-current-user`, `list-active-api-keys`,
+  `revoke-api-key`, `logout-all-local-sessions`, `set-basic-auth-password`,
+  `clear-basic-auth-password`, `list-devices`, `delete-device`.
+- 7 route handlers: `/api/auth/me` (GET), `/api/auth/api-keys` (GET),
+  `/api/auth/api-keys/[id]` (DELETE), `/api/auth/logout-all` (POST),
+  `/api/auth/basic-password` (PUT/DELETE), `/api/devices` (GET),
+  `/api/devices/[deviceId]` (DELETE). Todos protegidos con el mismo
+  `requireSession()` de 3a.
+- `composition.ts` extendido con los 3 repos + 8 use-cases nuevos.
+
+### Refactor de limpieza: cliente API compartido
+`shelves-api.ts` (3a) tenía su propio helper `request<T>()` duplicado. Con
+dos clientes nuevos a punto de repetirlo (`account-api.ts`,
+`devices-api.ts`), se factorizó a `src/lib/client/api-client.ts`
+(`request<T>()` + `errorMessage()`, esta última también usada por
+`use-shelf-manager.ts` — antes tenía su propia copia local).
+
+### Frontend conectado de verdad
+- `src/components/sidebar/settings/use-account-data.ts` y
+  `use-devices-data.ts` — mismo patrón de hook que `use-shelf-manager.ts`
+  (2c/3a): estado + loading/error + acciones que pegan a la API real.
+  **Diferencia clave:** a diferencia de shelves (que carga al montar el
+  Sidebar), estos hooks solo cargan datos **cuando el modal de Settings
+  está abierto** (`enabled: open`) — si cargaran siempre, cada carga de
+  `/library` dispararía 3 requests (`me`, `api-keys`, `devices`) aunque el
+  usuario nunca abra Settings. Esto replica el `openModal()` del original,
+  que disparaba los loads explícitamente al abrir.
+- `account-pane.tsx`, `api-key-list.tsx`, `devices-pane.tsx` — ya no usan
+  `notImplemented()`; reciben las acciones reales como props (mismo patrón
+  de props que ya tenían, solo se conectó el callback real).
+- `settings-modal.tsx` gana un prop `onSessionEnded`, pasado desde
+  `(app)/layout.tsx` como `window.location.href = "/"` — **recarga
+  completa de página**, no `router.push`, para limpiar cualquier estado
+  cliente que dependa de la sesión (p.ej. la lista de shelves del Sidebar,
+  que no tiene forma de enterarse de que la sesión murió). Logout y
+  Logout-All usan el mismo callback.
+- `mock-data.ts` perdió `mockCurrentUser`/`mockApiKeys`/`mockDevices`
+  (dead code una vez conectado lo real) — quedan solo los mocks de
+  App/Plugin/Integrations, que siguen pendientes.
+
+### Verificación
+`bun run build` limpio, 7 rutas nuevas como `ƒ (Dynamic)` (23 rutas API en
+total). Sin datos de prueba disponibles vía UI para api-keys/devices (ese
+flujo es `CreateDeviceApiKeyUseCase`, fuera de alcance), así que se
+insertaron filas de prueba directamente con un script `@libsql/client`
+contra `.data/dev.db` — **si vuelves a necesitar esto**, cuidado con
+reusar un `key_hash`/`device_id` ya existente (hay constraints únicos;
+revocar/borrar no elimina la fila vieja, solo la marca). Probado con
+`curl` (me, api-keys list, devices list, set/clear basic-password,
+logout-all → 401 después) y luego **end-to-end con Playwright a través de
+la UI real**: login, pestaña Account con datos reales del usuario,
+guardar/quitar basic-auth password, revocar API key (con toast), pestaña
+Devices, borrar device, y logout que redirige de verdad a `/` (la cookie
+de sesión queda invalidada). Sin errores de consola inesperados.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
 > `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — **la Fase 2
-> está completa** (2a-2d) y **la Fase 3a también** (logger, auth local
-> bootstrap/login/logout/status, y Shelves end-to-end conectado de verdad
-> en `use-shelf-manager.ts` — ya no es mock). Todo verificado con
-> Playwright contra la DB real, sin errores de consola. Nota importante ya
-> resuelta: en Next 16 el archivo se llama `proxy.ts`, no `middleware.ts`
-> (deprecado) — y de momento NO hay `proxy.ts`, la auth se resuelve
-> por-ruta vía `src/lib/server/auth/require-session.ts` (decisión
-> documentada en la sección "Fase 3a — Detalle de lo hecho").
+> está completa** (2a-2d), **la Fase 3a** (logger, auth local, Shelves
+> end-to-end) y **la Fase 3b** (Account + Devices del Settings modal,
+> end-to-end) también. Todo verificado con Playwright contra la DB real
+> a través de la UI, sin errores de consola. Notas importantes ya resueltas
+> (sección "Fase 3a/3b — Detalle de lo hecho"): en Next 16 el archivo se
+> llama `proxy.ts`, no `middleware.ts` (deprecado) — de momento NO hay
+> `proxy.ts`, la auth se resuelve por-ruta vía
+> `src/lib/server/auth/require-session.ts`; y `CreateDeviceApiKeyUseCase`
+> (pairing del plugin KOReader) sigue sin portar — es una ruta distinta a
+> la del Settings UI.
 >
-> Vamos a arrancar la Fase 3b. Propongo como candidato natural: la pestaña
-> **Account** (auth/me, auth/api-keys) y **Devices** del modal de Settings
-> (ambas mockeadas desde la Fase 2b) — reutilizan la misma infraestructura
-> de auth que ya existe (`userRepository`, sesión), sin necesitar clientes
-> de terceros nuevos (a diferencia de Hardcover/Z-Library). Antes de
-> escribir código: lee
-> `sake/src/routes/api/auth/me/+server.ts`,
-> `sake/src/routes/api/auth/api-keys/+server.ts` (+ `[id]/+server.ts`),
-> `sake/src/routes/api/devices/+server.ts` (+ `[deviceId]/+server.ts`), y
-> los use-cases/repositorios que esas rutas usan
-> (`GetCurrentUserUseCase`, `CreateDeviceApiKeyUseCase`,
-> `ListActiveApiKeysUseCase`, `RevokeApiKeyUseCase`, `ListDevicesUseCase`,
-> `DeleteDeviceUseCase`, y sus repos en
-> `sake/src/lib/server/infrastructure/repositories/`), gauge su tamaño, y
-> plantea el alcance de esta mini-fase (igual patrón que todas las
-> anteriores) antes de escribir nada. Si al leerlas aparece una dependencia
-> inesperada grande (como pasó con el login en 3a), decílo y propón cómo
-> acotar antes de seguir — no asumas que cabe todo en una sola iteración.
+> Vamos a arrancar la Fase 3c. Quedan sin conectar del Settings modal: la
+> pestaña **Plugin** (`plugin/koreader/releases`, `/latest`, `/download`,
+> `/upstream-version` — son rutas públicas según
+> `isPublicApiRoute` del `hooks.server.ts` original, sin cliente de
+> terceros, candidato más chico) y **Integrations** (Hardcover necesita
+> `HardcoverClient` nuevo; Z-Library mirrors + el login real de 2d
+> necesitan `ZLibraryClient` nuevo — candidatos más grandes). Antes de
+> escribir código, lee
+> `sake/src/routes/api/plugin/koreader/releases/+server.ts`,
+> `/latest/+server.ts`, `/download/+server.ts`,
+> `/upstream-version/+server.ts`, los use-cases que usan
+> (`KoreaderPluginArtifactService` ya está en `composition/foundation.ts`
+> del original, revisa qué hace), y gauge su tamaño real antes de
+> comprometerte a un alcance — decide tú si Plugin es de verdad el
+> candidato más chico una vez que leas el código, o si conviene otro orden.
+> Mismo patrón que siempre: plantea el alcance antes de escribir nada, y si
+> aparece una dependencia inesperada grande, dilo y propón cómo acotar en
+> vez de asumir que cabe todo en una iteración.

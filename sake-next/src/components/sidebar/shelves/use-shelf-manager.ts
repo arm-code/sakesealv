@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { countRuleConditions, type LibraryShelf, type RuleGroup } from "@/lib/types/library";
 import { ShelvesApi } from "@/lib/client/shelves-api";
+import { errorMessage } from "@/lib/client/api-client";
 
 export const SHELF_EMOJI_OPTIONS = [
   "📚", "⭐", "🚀", "📌", "🔥", "💎", "🎯", "📖", "🌙", "🎨", "💡", "🏆", "❤️", "🌊", "⚡", "🦋",
@@ -15,10 +16,6 @@ const SHELF_DRAG_CANCEL_DISTANCE_PX = 8;
 interface UseShelfManagerOptions {
   selectedShelfId: number | null;
   onSelectedShelfRemoved: () => void;
-}
-
-function errorMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error && cause.message ? cause.message : fallback;
 }
 
 // Fase 3a: el CRUD y el reorder pegan contra /api/library/shelves de verdad

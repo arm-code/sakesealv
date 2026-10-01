@@ -84,6 +84,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         onOpenZLibraryLogin={() => setZlibModalOpen(true)}
+        onSessionEnded={() => {
+          // Reset completo (no solo router.push) para limpiar cualquier estado
+          // cliente que dependa de la sesión (p.ej. la lista de shelves del Sidebar).
+          window.location.href = "/";
+        }}
       />
       <ZLibraryAuthModal open={zlibModalOpen} onOpenChange={setZlibModalOpen} />
     </div>

@@ -10,11 +10,10 @@ import { IntegrationsPane } from "./integrations-pane";
 import { AccountPane } from "./account-pane";
 import { DevicesPane } from "./devices-pane";
 import { notImplemented } from "./not-implemented";
+import { useAccountData } from "./use-account-data";
+import { useDevicesData } from "./use-devices-data";
 import {
-  mockApiKeys,
   mockAppVersion,
-  mockCurrentUser,
-  mockDevices,
   mockHardcoverStatus,
   mockPluginReleases,
   mockPluginUpstreamVersion,
@@ -44,10 +43,13 @@ interface SettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenZLibraryLogin: () => void;
+  onSessionEnded: () => void;
 }
 
-export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin }: SettingsModalProps) {
+export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin, onSessionEnded }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<SectionId>("app");
+  const account = useAccountData({ enabled: open, onSessionEnded });
+  const devices = useDevicesData(open);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -107,20 +109,35 @@ export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin }: Setti
             </TabsContent>
             <TabsContent value="account">
               <AccountPane
-                currentUser={mockCurrentUser}
-                currentUserError={null}
-                apiKeys={mockApiKeys}
-                apiKeysError={null}
-                revokingApiKeyId={null}
+                currentUser={account.currentUser}
+                currentUserError={account.currentUserError}
+                isLoadingCurrentUser={account.isLoadingCurrentUser}
+                apiKeys={account.apiKeys}
+                apiKeysError={account.apiKeysError}
+                isLoadingApiKeys={account.isLoadingApiKeys}
+                revokingApiKeyId={account.revokingApiKeyId}
                 formatDateTime={formatDateTime}
+                onRefreshApiKeys={account.refreshApiKeys}
+                onRevokeApiKey={account.revokeApiKey}
+                onLogout={account.logout}
+                onLogoutAll={account.logoutAll}
+                isLoggingOut={account.isLoggingOut}
+                isLoggingOutEverywhere={account.isLoggingOutEverywhere}
+                onSaveBasicAuthPassword={account.saveBasicAuthPassword}
+                onRemoveBasicAuthPassword={account.removeBasicAuthPassword}
+                isSavingBasicAuthPassword={account.isSavingBasicAuthPassword}
+                isRemovingBasicAuthPassword={account.isRemovingBasicAuthPassword}
               />
             </TabsContent>
             <TabsContent value="devices">
               <DevicesPane
-                devices={mockDevices}
-                devicesError={null}
-                deletingDeviceId={null}
+                devices={devices.devices}
+                devicesError={devices.devicesError}
+                isLoadingDevices={devices.isLoadingDevices}
+                deletingDeviceId={devices.deletingDeviceId}
                 formatDateTime={formatDateTime}
+                onRefresh={devices.refreshDevices}
+                onDelete={devices.deleteDevice}
               />
             </TabsContent>
           </div>
