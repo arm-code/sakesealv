@@ -42,6 +42,7 @@ export function ShelvesSection({ manager, selectedShelfId, isLibraryActive, onSe
               emojiOptions={manager.emojiOptions}
               confirmLabel="Save"
               autofocus
+              disabled={manager.isMutatingShelves}
               onConfirm={() => manager.handleRenameShelf(shelf.id)}
               onCancel={manager.cancelRenameShelf}
             />
@@ -84,6 +85,7 @@ export function ShelvesSection({ manager, selectedShelfId, isLibraryActive, onSe
             confirmLabel="Add"
             placeholder="Shelf name"
             autofocus
+            disabled={manager.isMutatingShelves}
             onConfirm={manager.handleCreateShelf}
             onCancel={manager.cancelCreateShelf}
           />

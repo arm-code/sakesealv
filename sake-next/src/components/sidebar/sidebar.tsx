@@ -195,6 +195,7 @@ export function Sidebar({
       message="Books stay in your library. Only shelf assignments will be removed."
       confirmLabel="Delete"
       danger
+      pending={shelfManager.isDeletingShelf}
       onConfirm={shelfManager.confirmDeleteShelf}
       onCancel={shelfManager.cancelDeleteShelf}
     />
@@ -205,6 +206,7 @@ export function Sidebar({
         shelfName={shelfManager.rulesModalShelf.name}
         shelfIcon={shelfManager.rulesModalShelf.icon}
         initialRuleGroup={shelfManager.rulesModalShelf.ruleGroup}
+        pending={shelfManager.isSavingShelfRules}
         onClose={shelfManager.closeRulesModal}
         onSave={shelfManager.handleSaveShelfRules}
       />

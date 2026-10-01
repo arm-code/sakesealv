@@ -82,3 +82,51 @@ export interface LibraryShelf {
   createdAt: string;
   updatedAt: string;
 }
+
+const RULE_FIELD_SET = new Set<string>(RULE_FIELDS);
+const RULE_OPERATOR_SET = new Set<string>(RULE_OPERATORS);
+const RULE_CONNECTOR_SET = new Set<string>(RULE_CONNECTORS);
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isShelfCondition(value: unknown): value is ShelfCondition {
+  if (!isObject(value)) return false;
+  return (
+    value.type === "condition" &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.field === "string" &&
+    RULE_FIELD_SET.has(value.field) &&
+    typeof value.operator === "string" &&
+    RULE_OPERATOR_SET.has(value.operator) &&
+    typeof value.value === "string"
+  );
+}
+
+function isRuleGroupInternal(value: unknown, depth: number): value is RuleGroup {
+  if (!isObject(value) || depth > 10) return false;
+  if (
+    value.type !== "group" ||
+    typeof value.id !== "string" ||
+    value.id.length === 0 ||
+    typeof value.connector !== "string" ||
+    !RULE_CONNECTOR_SET.has(value.connector) ||
+    !Array.isArray(value.children)
+  ) {
+    return false;
+  }
+  return value.children.every((child) => isShelfCondition(child) || isRuleGroupInternal(child, depth + 1));
+}
+
+export function isRuleGroup(value: unknown): value is RuleGroup {
+  return isRuleGroupInternal(value, 0);
+}
+
+export function parseRuleGroup(value: unknown): { ok: true; value: RuleGroup } | { ok: false; error: string } {
+  if (!isRuleGroup(value)) {
+    return { ok: false, error: "ruleGroup is invalid" };
+  }
+  return { ok: true, value };
+}

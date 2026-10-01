@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { countRuleConditions, createEmptyRuleGroup, type LibraryShelf, type RuleGroup } from "@/lib/types/library";
-import { mockShelves } from "./mock-shelves";
+import { countRuleConditions, type LibraryShelf, type RuleGroup } from "@/lib/types/library";
+import { ShelvesApi } from "@/lib/client/shelves-api";
 
 export const SHELF_EMOJI_OPTIONS = [
   "📚", "⭐", "🚀", "📌", "🔥", "💎", "🎯", "📖", "🌙", "🎨", "💡", "🏆", "❤️", "🌊", "⚡", "🦋",
@@ -17,17 +17,23 @@ interface UseShelfManagerOptions {
   onSelectedShelfRemoved: () => void;
 }
 
-// Fase 2c: CRUD y reorder son 100% locales (sin backend todavía). La Fase 3
-// reemplaza el useState de shelves por shelfStore + llamadas a /api/shelves,
-// manteniendo esta misma superficie de funciones.
+function errorMessage(cause: unknown, fallback: string): string {
+  return cause instanceof Error && cause.message ? cause.message : fallback;
+}
+
+// Fase 3a: el CRUD y el reorder pegan contra /api/library/shelves de verdad
+// (ver src/app/api/library/shelves/). El reorder sigue siendo optimista
+// durante el drag (igual que en 2c) pero ahora persiste al soltar, con
+// revert local si la llamada falla.
 export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: UseShelfManagerOptions) {
-  const [shelves, setShelves] = useState<LibraryShelf[]>(mockShelves);
+  const [shelves, setShelves] = useState<LibraryShelf[]>([]);
   const [shelvesExpanded, setShelvesExpanded] = useState(true);
 
   const [showCreateShelf, setShowCreateShelf] = useState(false);
   const [newShelfName, setNewShelfName] = useState("");
   const [newShelfIcon, setNewShelfIcon] = useState("📚");
   const [showCreateEmojiPicker, setShowCreateEmojiPicker] = useState(false);
+  const [isMutatingShelves, setIsMutatingShelves] = useState(false);
 
   const [editingShelfId, setEditingShelfId] = useState<number | null>(null);
   const [editShelfName, setEditShelfName] = useState("");
@@ -37,7 +43,9 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
   const [menuOpenShelfId, setMenuOpenShelfId] = useState<number | null>(null);
   const [showDeleteShelfModal, setShowDeleteShelfModal] = useState(false);
   const [pendingDeleteShelfId, setPendingDeleteShelfId] = useState<number | null>(null);
+  const [isDeletingShelf, setIsDeletingShelf] = useState(false);
   const [rulesModalShelfId, setRulesModalShelfId] = useState<number | null>(null);
+  const [isSavingShelfRules, setIsSavingShelfRules] = useState(false);
 
   const [draggingShelfId, setDraggingShelfId] = useState<number | null>(null);
   const [shelfDragOverId, setShelfDragOverId] = useState<number | null>(null);
@@ -46,12 +54,21 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
   shelvesRef.current = shelves;
   const draggingShelfIdRef = useRef<number | null>(null);
   draggingShelfIdRef.current = draggingShelfId;
+  const shelfOrderBeforeDrag = useRef<LibraryShelf[] | null>(null);
 
   const pressedShelfId = useRef<number | null>(null);
   const pressedPointerId = useRef<number | null>(null);
   const pressedStart = useRef({ x: 0, y: 0 });
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const blockClickUntil = useRef(0);
+
+  useEffect(() => {
+    ShelvesApi.list()
+      .then((result) => setShelves(result.shelves))
+      .catch((cause: unknown) => {
+        toast.error(`Failed to load shelves: ${errorMessage(cause, "unknown error")}`);
+      });
+  }, []);
 
   function getShelfRuleCount(shelf: LibraryShelf): number {
     return countRuleConditions(shelf.ruleGroup);
@@ -78,23 +95,21 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
     setShowCreateEmojiPicker(false);
   }
 
-  function handleCreateShelf(): void {
+  async function handleCreateShelf(): Promise<void> {
     const name = newShelfName.trim();
-    if (!name) return;
-    const nextId = shelvesRef.current.reduce((max, shelf) => Math.max(max, shelf.id), 0) + 1;
-    const now = new Date().toISOString();
-    const shelf: LibraryShelf = {
-      id: nextId,
-      name,
-      icon: newShelfIcon,
-      sortOrder: shelvesRef.current.length,
-      ruleGroup: createEmptyRuleGroup(),
-      createdAt: now,
-      updatedAt: now,
-    };
-    setShelves((prev) => [...prev, shelf]);
-    cancelCreateShelf();
-    toast.success(`Shelf "${name}" created`);
+    if (!name || isMutatingShelves) return;
+
+    setIsMutatingShelves(true);
+    try {
+      const result = await ShelvesApi.create({ name, icon: newShelfIcon });
+      setShelves((prev) => [...prev, result.shelf]);
+      cancelCreateShelf();
+      toast.success(`Shelf "${name}" created`);
+    } catch (cause: unknown) {
+      toast.error(`Failed to create shelf: ${errorMessage(cause, "unknown error")}`);
+    } finally {
+      setIsMutatingShelves(false);
+    }
   }
 
   function startRenameShelf(shelf: LibraryShelf): void {
@@ -113,18 +128,21 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
     setShowEditEmojiPicker(false);
   }
 
-  function handleRenameShelf(shelfId: number): void {
+  async function handleRenameShelf(shelfId: number): Promise<void> {
     const name = editShelfName.trim();
-    if (!name) return;
-    setShelves((prev) =>
-      prev.map((shelf) =>
-        shelf.id === shelfId
-          ? { ...shelf, name, icon: editShelfIcon, updatedAt: new Date().toISOString() }
-          : shelf,
-      ),
-    );
-    cancelRenameShelf();
-    toast.success(`Shelf renamed to "${name}"`);
+    if (!name || isMutatingShelves) return;
+
+    setIsMutatingShelves(true);
+    try {
+      const result = await ShelvesApi.update(shelfId, { name, icon: editShelfIcon });
+      setShelves((prev) => prev.map((shelf) => (shelf.id === shelfId ? result.shelf : shelf)));
+      cancelRenameShelf();
+      toast.success(`Shelf renamed to "${name}"`);
+    } catch (cause: unknown) {
+      toast.error(`Failed to rename shelf: ${errorMessage(cause, "unknown error")}`);
+    } finally {
+      setIsMutatingShelves(false);
+    }
   }
 
   function requestDeleteShelf(shelf: LibraryShelf): void {
@@ -138,18 +156,27 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
     setPendingDeleteShelfId(null);
   }
 
-  function confirmDeleteShelf(): void {
+  async function confirmDeleteShelf(): Promise<void> {
     const shelf = shelvesRef.current.find((item) => item.id === pendingDeleteShelfId);
-    if (!shelf) {
+    if (!shelf || isDeletingShelf) {
       cancelDeleteShelf();
       return;
     }
-    setShelves((prev) => prev.filter((item) => item.id !== shelf.id));
-    if (selectedShelfId === shelf.id) {
-      onSelectedShelfRemoved();
+
+    setIsDeletingShelf(true);
+    try {
+      await ShelvesApi.remove(shelf.id);
+      setShelves((prev) => prev.filter((item) => item.id !== shelf.id));
+      if (selectedShelfId === shelf.id) {
+        onSelectedShelfRemoved();
+      }
+      cancelDeleteShelf();
+      toast.success(`Shelf "${shelf.name}" deleted`);
+    } catch (cause: unknown) {
+      toast.error(`Failed to delete shelf: ${errorMessage(cause, "unknown error")}`);
+    } finally {
+      setIsDeletingShelf(false);
     }
-    cancelDeleteShelf();
-    toast.success(`Shelf "${shelf.name}" deleted`);
   }
 
   function openRulesModal(shelfId: number): void {
@@ -159,21 +186,23 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
   }
 
   function closeRulesModal(): void {
-    setRulesModalShelfId(null);
+    if (!isSavingShelfRules) setRulesModalShelfId(null);
   }
 
-  function handleSaveShelfRules(ruleGroup: RuleGroup): void {
-    if (rulesModalShelfId === null) return;
-    setShelves((prev) =>
-      prev.map((shelf) =>
-        shelf.id === rulesModalShelfId
-          ? { ...shelf, ruleGroup, updatedAt: new Date().toISOString() }
-          : shelf,
-      ),
-    );
-    const shelf = shelvesRef.current.find((item) => item.id === rulesModalShelfId);
-    setRulesModalShelfId(null);
-    if (shelf) toast.success(`Rules updated for "${shelf.name}"`);
+  async function handleSaveShelfRules(ruleGroup: RuleGroup): Promise<void> {
+    if (rulesModalShelfId === null || isSavingShelfRules) return;
+
+    setIsSavingShelfRules(true);
+    try {
+      const result = await ShelvesApi.updateRules(rulesModalShelfId, ruleGroup);
+      setShelves((prev) => prev.map((shelf) => (shelf.id === result.shelf.id ? result.shelf : shelf)));
+      setRulesModalShelfId(null);
+      toast.success(`Rules updated for "${result.shelf.name}"`);
+    } catch (cause: unknown) {
+      toast.error(`Failed to update shelf rules: ${errorMessage(cause, "unknown error")}`);
+    } finally {
+      setIsSavingShelfRules(false);
+    }
   }
 
   function shouldIgnoreShelfClick(): boolean {
@@ -197,6 +226,7 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
   function resetDragState(): void {
     setDraggingShelfId(null);
     setShelfDragOverId(null);
+    shelfOrderBeforeDrag.current = null;
     document.body.style.userSelect = "";
     document.body.style.cursor = "";
   }
@@ -205,6 +235,7 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
     if (draggingShelfIdRef.current !== null) return;
     setDraggingShelfId(shelfId);
     setShelfDragOverId(shelfId);
+    shelfOrderBeforeDrag.current = shelvesRef.current;
     blockClickUntil.current = Date.now() + 500;
     closeAllShelfMenus();
     document.body.style.userSelect = "none";
@@ -231,6 +262,19 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
       next.splice(toIndex, 0, dragged);
       return next;
     });
+  }
+
+  async function persistShelfReorder(previousShelves: LibraryShelf[]): Promise<void> {
+    const shelfIds = shelvesRef.current.map((shelf) => shelf.id);
+    try {
+      const result = await ShelvesApi.reorder(shelfIds);
+      setShelves(result.shelves);
+    } catch (cause: unknown) {
+      setShelves(previousShelves);
+      toast.error(`Failed to reorder shelves: ${errorMessage(cause, "unknown error")}`);
+    } finally {
+      resetDragState();
+    }
   }
 
   function handleShelfPointerDown(event: React.PointerEvent, shelfId: number): void {
@@ -274,10 +318,22 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
       if (pressedPointerId.current === null || event.pointerId !== pressedPointerId.current) return;
       clearPressTimer();
       const wasDragging = draggingShelfIdRef.current !== null;
+      const previousShelves = shelfOrderBeforeDrag.current;
       resetPressState();
       if (!wasDragging) return;
       blockClickUntil.current = Date.now() + 500;
-      resetDragState();
+
+      const orderChanged =
+        previousShelves !== null &&
+        (previousShelves.length !== shelvesRef.current.length ||
+          previousShelves.some((shelf, index) => shelf.id !== shelvesRef.current[index]?.id));
+
+      if (!orderChanged || previousShelves === null) {
+        resetDragState();
+        return;
+      }
+
+      void persistShelfReorder(previousShelves);
     }
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -313,6 +369,7 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
     startCreateShelf,
     cancelCreateShelf,
     handleCreateShelf,
+    isMutatingShelves,
 
     editingShelfId,
     editShelfName,
@@ -331,11 +388,13 @@ export function useShelfManager({ selectedShelfId, onSelectedShelfRemoved }: Use
 
     showDeleteShelfModal,
     pendingDeleteShelf,
+    isDeletingShelf,
     requestDeleteShelf,
     cancelDeleteShelf,
     confirmDeleteShelf,
 
     rulesModalShelf,
+    isSavingShelfRules,
     openRulesModal,
     closeRulesModal,
     handleSaveShelfRules,

@@ -22,7 +22,9 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 2b — Settings modal (shell + 5 panes, datos mock).
    - ✅ 2c — Shelf manager (CRUD local, drag&drop, reglas, emoji picker).
    - ✅ 2d — ZLibraryAuthModal (formulario interactivo, submit mock).
-3. ⬜ **Fase 3 — Rutas de API y utilidades de servidor.**
+3. 🔜 **Fase 3 — Rutas de API y utilidades de servidor.** (EN CURSO)
+   - ✅ 3a — Logger + auth local (bootstrap/login/logout/status) + Shelves end-to-end.
+   - ⬜ 3b+ — el resto: library/books, zlibrary, OPDS, DAV, devices, annotations, queue, stats, metadata, logs streaming...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
 ---
@@ -350,22 +352,164 @@ errores.
 
 ---
 
+## Fase 3a — Detalle de lo hecho (COMPLETA)
+
+**Descubrimiento de alcance:** el backend de `sake/` tiene **~90 archivos de
+rutas API y ~19,645 líneas** en `src/lib/server/` (arquitectura hexagonal:
+`domain/application/infrastructure`, con `use-cases`, `ports`, `repositories`).
+Demasiado grande para una sola iteración. Se acordó con el usuario acotar
+3a a: **logger + auth local completo (bootstrap/login/logout/status) +
+Shelves end-to-end**, dejando todo lo demás (library/books, zlibrary, OPDS,
+DAV, devices, annotations, queue, stats, metadata) para 3b en adelante.
+
+### ⚠️ Descubrimiento crítico: `middleware.ts` no existe en Next 16
+`AGENTS.md` (auto-generado por `next dev`) advertía de breaking changes.
+Se confirmó uno real: **`middleware.ts` está deprecado y renombrado a
+`proxy.ts`** desde Next 16 (`node_modules/next/dist/docs/.../proxy.md`).
+Quien retome esto: si vas a escribir algo de middleware, el archivo se
+llama `proxy.ts`, no `middleware.ts`.
+
+### Decisión de arquitectura: sin `proxy.ts` todavía, auth por-ruta
+`proxy.ts` en Next 16 corre en runtime Node.js por defecto (puede usar
+Drizzle + `node:crypto` sin problema), pero **solo puede pasar datos a los
+Route Handlers vía headers/cookies** — no hay equivalente al
+`event.locals.auth` tipado que SvelteKit compartía entre `hooks.server.ts`
+y cada `+server.ts`. Además, gran parte de lo que hacía `authHandle` en el
+`hooks.server.ts` original (380 líneas) es **lógica de redirect de
+páginas** (gating de `/search`, redirect de `/` a `/library`, etc.) — eso
+es Fase 4, no Fase 3.
+
+**Decisión tomada (no se volvió a preguntar, es una llamada técnica
+clara):** cada ruta protegida resuelve su propia sesión llamando a un
+helper compartido (`src/lib/server/auth/require-session.ts` →
+`requireSession()`), en vez de centralizar en `proxy.ts`. Cuando la Fase 4
+necesite redirects basados en sesión para páginas, ahí sí tiene sentido
+añadir `proxy.ts` para ese propósito específico.
+
+### Composition root minimalista
+El original tiene un barrel `composition.ts` que re-exporta 7 módulos
+(`foundation`, `providers`, `downloads`, `library`, `search`, `auth`,
+`integrations`, `annotations`) — importarlo completo instanciaría
+repositorios/servicios de subsistemas que ni existen todavía en
+`sake-next` (S3Storage, ZLibraryClient, HardcoverClient, BookRepository...).
+`sake-next/src/lib/server/application/composition.ts` solo wirea lo que
+3a necesita: 4 repositorios (user/session/apiKey/shelf) y 11 use-cases.
+**Extender este archivo según se vayan portando más features** — no crear
+uno nuevo.
+
+### Gotcha real encontrado en runtime
+`getLibsqlConfig()` llama a `resolveInfrastructureConfig(env)`, que
+valida **libsql Y S3 juntos** (así era ya en el original — Fase 1 lo portó
+tal cual). Sin `S3_*` en `.env`, hasta abrir la conexión a la DB fallaba
+con "Missing S3 configuration", aunque las rutas de auth/shelves no tocan
+S3 para nada. No es un bug de la migración — es un acoplamiento que ya
+existía. Se documenta aquí para que no vuelva a sorprender: **`.env` de
+dev necesita `S3_*` aunque sea con valores dummy**, incluso para features
+que no usan storage.
+
+### Qué se portó tal cual (sin cambios de lógica, solo de framework)
+- `logger.ts` — pino + `pino-pretty`. **Se dejó fuera `webappLogFeed.ts`**
+  (199 líneas, stream para el visor de logs en vivo de Settings → Logs,
+  que no existe en `sake-next` — es Fase 4). Si se porta ese visor más
+  adelante, ahí se retoma.
+- Toda la cadena de auth local: `LocalAuthService` (scrypt, tokens),
+  `ResolveRequestAuthUseCase`, `Bootstrap/Login/LogoutLocalAccountUseCase`,
+  `GetAuthStatusUseCase`, los 3 repositorios Drizzle (`UserRepository`,
+  `UserSessionRepository`, `UserApiKeyRepository`), rate limiting de
+  login/bootstrap (`rate-limit.ts` — se quitaron las policies de
+  `deviceKeyIp`/`deviceKeyUserDevice`, son para pairing de dispositivo
+  KOReader, otra feature de 3b+).
+- Todo el slice de Shelves: 6 use-cases, `ShelfRepository` (incluye el
+  `UPDATE ... CASE WHEN` en SQL crudo para el reorder, con el mismo guard
+  de validación de IDs enteros positivos antes de interpolar), 4 route
+  handlers.
+- `src/lib/types/library.ts` ganó `isRuleGroup`/`parseRuleGroup` (se
+  habían omitido a propósito en la Fase 2c, documentado como "Fase 3
+  territory" — ya están).
+
+### Qué se simplificó/dejó fuera a propósito
+- `auth/cookies.ts`: sin el chequeo de socket de plataforma (no aplica a
+  Route Handlers) ni el parseo completo del header `forwarded` — solo
+  `x-forwarded-proto` + fallback a la URL (cubre el self-hosting detrás de
+  reverse proxy del README). También se quitó `clearZlibraryCookies`
+  (cookies `userId`/`userKey` del scraping de Z-Library) — eso es Fase 3b
+  cuando se porte zlibrary.
+- `ShelfRepositoryPort`: sin `listByIds`/`getBookShelfIds*`/
+  `setBookShelfIds` — son para membresía libro↔shelf, parte de la Fase de
+  library/books, no de la de shelves en sí.
+- `hooks.server.ts` original también dispara jobs de fondo al arrancar
+  (purga de trash, sync de plugin KOReader, sync de progreso de
+  Hardcover, índice de anotaciones) — **nada de eso se portó**, son
+  features de 3b+ que no existen aún en `sake-next`.
+- `http/api.ts`: solo `apiOk`/`apiError`/`errorResponse` — se dejaron
+  fuera `withResponseHeader`/`getErrorMessage`/`attempt`, no los usa nada
+  de lo portado hasta ahora.
+
+### Frontend conectado de verdad
+- `src/lib/client/shelves-api.ts` — cliente fetch nuevo (no existía algo
+  así en 2c, que era 100% local).
+- `src/components/sidebar/shelves/use-shelf-manager.ts` — reescrito para
+  cargar shelves reales al montar (`useEffect` + `ShelvesApi.list()`) y
+  llamar a la API real en create/rename/delete/rules/reorder, con
+  `toast.error(...)` en fallos y **revert local si el reorder falla en el
+  servidor** (antes no había paso de persistencia que pudiera fallar).
+  Se agregaron estados `isMutatingShelves`/`isDeletingShelf`/
+  `isSavingShelfRules` y se propagaron como `pending`/`disabled` a
+  `ConfirmDialog`, `ShelfRulesModal` y `ShelfEditRow` (antes no existían
+  porque las mutaciones locales eran síncronas).
+
+### Setup de desarrollo
+- `sake-next/.env` creado (gitignored) con `LIBSQL_URL=file:./.data/dev.db`
+  + `S3_*` dummy (ver gotcha arriba). `/.data/` añadido a `.gitignore`.
+- `bun run db:migrate` corrido contra esa DB local — las 26 migraciones de
+  la Fase 1 aplican limpio.
+- **No hay página de login todavía** (Fase 4) — para probar rutas
+  protegidas, autenticar vía `POST /api/auth/bootstrap` (primera cuenta) o
+  `/api/auth/login` directamente (curl, o `page.request.post(...)` en
+  Playwright), la cookie de sesión queda seteada para el resto de la
+  sesión del navegador.
+
+### Verificación
+`bun run build` compila limpio, las 8 rutas nuevas aparecen como `ƒ
+(Dynamic)`. Probado con `curl` el flujo completo (status → bootstrap →
+status → shelves CRUD → reorder → logout → 401) contra SQLite real. Luego
+verificado end-to-end con Playwright **a través de la UI real** (no mocks):
+login vía API, crear shelf desde el Sidebar, **reload de página** para
+confirmar que persiste en servidor, abrir/guardar reglas, reload de nuevo,
+borrar, reload, logout, confirmar 401. Sin errores de consola inesperados.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
 > `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — **la Fase 2
-> está completa** (2a shell visual, 2b Settings modal, 2c shelf manager, 2d
-> Z-Library auth modal), todas verificadas visualmente con Playwright y sin
-> errores de consola. Vamos a arrancar la Fase 3 (rutas de API y utilidades
-> de servidor). Antes de elegir qué migrar primero, dame un resumen de qué
-> rutas/endpoints existen en `sake/src/routes/api/` (o donde estén) y su
-> tamaño, para decidir el orden igual que se hizo con los mini-pasos de la
-> Fase 2 — probablemente convenga empezar por lo que ya bloquea componentes
-> ya migrados: `getLibsqlConfig`/infra (ya movido en Fase 1), el logger
-> (pendiente, bloqueaba `logResolvedConfig` desde la Fase 1), y los
-> endpoints de shelves/settings/zlibrary-auth que hoy están mockeados en
-> `sake-next/src/components/sidebar/`. Antes de escribir código, plantea el
-> alcance de esta primera mini-fase de Fase 3 como se ha hecho en todas las
-> anteriores.
+> está completa** (2a-2d) y **la Fase 3a también** (logger, auth local
+> bootstrap/login/logout/status, y Shelves end-to-end conectado de verdad
+> en `use-shelf-manager.ts` — ya no es mock). Todo verificado con
+> Playwright contra la DB real, sin errores de consola. Nota importante ya
+> resuelta: en Next 16 el archivo se llama `proxy.ts`, no `middleware.ts`
+> (deprecado) — y de momento NO hay `proxy.ts`, la auth se resuelve
+> por-ruta vía `src/lib/server/auth/require-session.ts` (decisión
+> documentada en la sección "Fase 3a — Detalle de lo hecho").
+>
+> Vamos a arrancar la Fase 3b. Propongo como candidato natural: la pestaña
+> **Account** (auth/me, auth/api-keys) y **Devices** del modal de Settings
+> (ambas mockeadas desde la Fase 2b) — reutilizan la misma infraestructura
+> de auth que ya existe (`userRepository`, sesión), sin necesitar clientes
+> de terceros nuevos (a diferencia de Hardcover/Z-Library). Antes de
+> escribir código: lee
+> `sake/src/routes/api/auth/me/+server.ts`,
+> `sake/src/routes/api/auth/api-keys/+server.ts` (+ `[id]/+server.ts`),
+> `sake/src/routes/api/devices/+server.ts` (+ `[deviceId]/+server.ts`), y
+> los use-cases/repositorios que esas rutas usan
+> (`GetCurrentUserUseCase`, `CreateDeviceApiKeyUseCase`,
+> `ListActiveApiKeysUseCase`, `RevokeApiKeyUseCase`, `ListDevicesUseCase`,
+> `DeleteDeviceUseCase`, y sus repos en
+> `sake/src/lib/server/infrastructure/repositories/`), gauge su tamaño, y
+> plantea el alcance de esta mini-fase (igual patrón que todas las
+> anteriores) antes de escribir nada. Si al leerlas aparece una dependencia
+> inesperada grande (como pasó con el login en 3a), decílo y propón cómo
+> acotar antes de seguir — no asumas que cabe todo en una sola iteración.
