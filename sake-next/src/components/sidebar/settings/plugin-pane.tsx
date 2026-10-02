@@ -1,6 +1,5 @@
 import { Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { notImplemented } from "./not-implemented";
 import type {
   KoreaderPluginRelease,
   KoreaderPluginReleasesResponse,
@@ -16,6 +15,8 @@ interface PluginPaneProps {
   upstreamVersionError: string | null;
   isCheckingPluginUpstreamVersion?: boolean;
   formatDateTime: (value: string | null) => string;
+  onRefresh: () => void;
+  onCheckUpstream: () => void;
 }
 
 function formatSha(value: string): string {
@@ -56,6 +57,8 @@ export function PluginPane({
   upstreamVersionError,
   isCheckingPluginUpstreamVersion = false,
   formatDateTime,
+  onRefresh,
+  onCheckUpstream,
 }: PluginPaneProps) {
   const releases = releasesInfo?.releases ?? [];
   const latestRelease = releases.find((release) => release.isLatest) ?? releases[0] ?? null;
@@ -69,12 +72,7 @@ export function PluginPane({
             Download the KOReader Sake plugin artifacts uploaded by this server.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => notImplemented("Refreshing plugin releases")}
-          disabled={isLoadingPluginReleases}
-        >
+        <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoadingPluginReleases}>
           <RefreshCw className="size-4" aria-hidden="true" />
           Refresh
         </Button>
@@ -131,12 +129,7 @@ export function PluginPane({
                 </p>
               )}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => notImplemented("Checking the upstream plugin version")}
-              disabled={isCheckingPluginUpstreamVersion}
-            >
+            <Button variant="outline" size="sm" onClick={onCheckUpstream} disabled={isCheckingPluginUpstreamVersion}>
               <RefreshCw className="size-4" aria-hidden="true" />
               {isCheckingPluginUpstreamVersion ? "Checking..." : "Check upstream"}
             </Button>

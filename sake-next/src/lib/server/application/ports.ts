@@ -8,6 +8,7 @@ import type {
   UserSession,
 } from "@/lib/server/domain/auth";
 import type { Device } from "@/lib/server/domain/device";
+import type { PluginRelease, UpsertPluginReleaseInput } from "@/lib/server/domain/plugin-release";
 
 export interface UserRepositoryPort {
   count(): Promise<number>;
@@ -61,4 +62,26 @@ export interface DeviceDownloadRepositoryPort {
 // Recortado a lo único que usa DeleteDeviceUseCase.
 export interface DeviceProgressDownloadRepositoryPort {
   deleteByDeviceId(deviceId: string): Promise<void>;
+}
+
+export interface PluginReleaseRepositoryPort {
+  upsert(input: UpsertPluginReleaseInput): Promise<PluginRelease>;
+  setLatestVersion(version: string): Promise<void>;
+  getLatest(): Promise<PluginRelease | undefined>;
+  getByVersion(version: string): Promise<PluginRelease | undefined>;
+  listAll(): Promise<PluginRelease[]>;
+}
+
+export interface StorageObjectInfo {
+  key: string;
+  size: number;
+  lastModified?: Date;
+}
+
+export interface StoragePort {
+  put(key: string, body: Buffer | Uint8Array | NodeJS.ReadableStream, contentType?: string): Promise<void>;
+  get(key: string): Promise<Buffer>;
+  exists?(key: string): Promise<boolean>;
+  delete(key: string): Promise<void>;
+  list(prefix: string): Promise<StorageObjectInfo[]>;
 }

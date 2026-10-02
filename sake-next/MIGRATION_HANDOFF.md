@@ -25,7 +25,8 @@ sin saltar a la siguiente hasta cerrar la actual.
 3. 🔜 **Fase 3 — Rutas de API y utilidades de servidor.** (EN CURSO)
    - ✅ 3a — Logger + auth local (bootstrap/login/logout/status) + Shelves end-to-end.
    - ✅ 3b — Account pane (me/api-keys/logout-all/basic-password) + Devices pane end-to-end.
-   - ⬜ 3c+ — el resto: library/books, zlibrary, OPDS, DAV, annotations, queue, stats, metadata, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
+   - ✅ 3c — Plugin pane (releases/latest/download/upstream-version) end-to-end, incluyendo S3Storage real por primera vez.
+   - ⬜ 3d+ — el resto: library/books, zlibrary (search/download/login real), OPDS, DAV, annotations, queue, stats, metadata, Hardcover, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
 ---
@@ -566,38 +567,149 @@ de sesión queda invalidada). Sin errores de consola inesperados.
 
 ---
 
+## Fase 3c — Detalle de lo hecho (COMPLETA)
+
+**Alcance confirmado al leer el código:** Plugin fue de verdad el candidato
+más chico (routes + use-cases ~290 líneas), pero **creció al leer más
+profundo**: `GetKoreaderPluginDownloadUseCase` necesita `StoragePort`/S3 —
+nada en `sake-next` lo usaba todavía (primera vez que se toca storage de
+archivos). Y la tabla `pluginReleases` estaba vacía (el job de sync nunca
+corrió — se excluyó a propósito en 3a junto con el resto de jobs de
+arranque de `hooks.server.ts`). Se decidió portar el round-trip completo
+(`S3Storage` + `SyncKoreaderPluginReleaseUseCase` +
+`KoreaderPluginArtifactService`, ~290 líneas más, total ~950) en vez de
+dejar el Plugin pane con datos vacíos — y se verificó con S3 real, no
+mockeado.
+
+### Infra de testing: S3 real local, no mocks
+`docker-compose.selfhost.yaml` (del proyecto Svelte original) ya define
+`seaweedfs` + `seaweedfs-init` (SeaweedFS, S3-compatible). **Resulta que ya
+había un contenedor `sake-seaweedfs` corriendo** (de trabajo previo del
+usuario con la app original, no algo que esta sesión arrancara) — se
+reutilizó tal cual, sin tocarlo. `sake-next/.env` se actualizó con las
+credenciales reales de `sake/.env.docker.selfhosted`
+(`S3_ENDPOINT=http://localhost:8333`, bucket `sake`, etc.). El primer sync
+encontró que el artifact ya existía en ese bucket real (`uploaded: false`,
+`445707c5...` el mismo sha256) — confirma interop genuina con datos reales
+del proyecto original, no un bucket vacío de prueba.
+
+**Si retomas esto en otra máquina o el contenedor no está corriendo:**
+`docker compose -f docker-compose.selfhost.yaml up -d seaweedfs seaweedfs-init`
+desde la raíz del repo (no desde `sake-next/`).
+
+### Cómo se disparó el sync (sin inventar un endpoint nuevo)
+El original dispara `SyncKoreaderPluginReleaseUseCase` como side-effect de
+arranque en `hooks.server.ts` (`triggerPluginSyncOnStartup`) — ese patrón
+completo de "jobs en background al arrancar el server" sigue
+deliberadamente sin portar (ver nota de 3a). Replicarlo en Next.js no es
+trivial: no hay equivalente directo a "código que corre una vez al boot
+del proceso" de forma confiable en dev (Turbopack compila rutas on-demand).
+**Decisión:** no inventar una ruta HTTP nueva ni un hack de side-effect en
+un route handler — se invocó el use-case directamente con un script
+desechable (`bun run --env-file=.env _test-sync.ts`, borrado después de
+usarlo, igual que el seed de 3b). **Cómo arrancan los jobs de fondo en el
+self-hosted de Next.js (sync de plugin, purga de trash, Hardcover, índice
+de anotaciones) sigue siendo una decisión de arquitectura pendiente** —
+probablemente un comando de arranque del Docker entrypoint o un cron
+dedicado, no algo para resolver de paso en una mini-fase de UI. Queda
+anotado para cuando se porte ese subsistema completo.
+
+### Archivos creados
+- `src/lib/server/domain/plugin-release.ts` — entidad `PluginRelease`.
+- `ports.ts` ganó `PluginReleaseRepositoryPort`, `StoragePort` y
+  `StorageObjectInfo` (sin recortar — a diferencia de los puertos de 3b,
+  acá sí se usan todos los métodos).
+- `src/lib/server/infrastructure/storage/s3-storage.ts` +
+  `s3-list-pagination.ts` — puerto verbatim de `S3Storage`/
+  `listAllS3Objects`. Registrado en `composition.ts` como
+  `createLazySingleton(() => new S3Storage())`, mismo patrón que
+  `drizzleDb` — no abre conexión S3 hasta el primer uso real.
+- `src/lib/server/infrastructure/repositories/plugin-release-repository.ts`.
+- `src/lib/server/application/services/koreader-plugin-version.ts` +
+  `koreader-plugin-artifact-service.ts` (este último construye el .zip del
+  plugin leyendo `koreaderPlugins/sake.koplugin/` en disco — el segundo
+  candidato de ruta, `../koreaderPlugins/sake.koplugin` relativo al cwd de
+  `sake-next/`, resuelve correcto a la carpeta real en la raíz del repo sin
+  cambios).
+- 5 use-cases: `sync-koreader-plugin-release`, `get-latest-koreader-plugin`,
+  `list-koreader-plugin-releases`, `get-koreader-plugin-upstream-version`,
+  `get-koreader-plugin-download`.
+- 4 route handlers, **sin `requireSession()`** — son públicas en el
+  original (`isPublicApiRoute` del `hooks.server.ts`, porque el plugin de
+  KOReader en el dispositivo las llama sin sesión de navegador):
+  `/api/plugin/koreader/releases`, `/latest`, `/download`,
+  `/upstream-version`.
+- Nueva dependencia: `jszip` (no estaba en `sake-next`, Fase 1 la había
+  diferido para "cuando se migre el lector" — resultó necesitarse antes,
+  para construir el zip del plugin).
+
+### Frontend conectado de verdad
+- `src/lib/client/plugin-api.ts` + `use-plugin-data.ts` — mismo patrón de
+  hook que Account/Devices (carga solo con el modal abierto). Particularidad:
+  un 404 "Plugin releases not found" (nada sincronizado todavía) se trata
+  como **lista vacía válida**, no como error — coincide con el estado real
+  de un self-host recién instalado antes de que corra el sync.
+- `plugin-pane.tsx` ya no usa `notImplemented()` — `onRefresh`/
+  `onCheckUpstream` reales. El botón "Download" ya funcionaba como `<a
+  href>` directo desde la Fase 2b (apuntando a `downloadUrl` del backend),
+  así que no necesitó cambios — solo empezó a apuntar a una URL real en
+  vez de placeholder `"#"`.
+- `mock-data.ts` perdió `mockPluginReleases`/`mockPluginUpstreamVersion`.
+
+### Verificación
+`bun run build` limpio (24 rutas API en total). El sync real contra S3
+local logueó cada paso (detección de versión, build del zip, upload
+omitido por ya existir, upsert en DB). Luego **end-to-end con Playwright a
+través de la UI real**: las 4 rutas devuelven datos reales por `curl`
+primero, y después, **descarga real de un archivo** haciendo click en el
+botón "Download" de la UI (Playwright capturó el evento de descarga del
+navegador, 31,637 bytes, mismo tamaño que por `curl`), más "Check
+upstream" contactando a GitHub de verdad (`raw.githubusercontent.com`) y
+mostrando "Up to date". Sin errores de consola.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
 > `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — **la Fase 2
-> está completa** (2a-2d), **la Fase 3a** (logger, auth local, Shelves
-> end-to-end) y **la Fase 3b** (Account + Devices del Settings modal,
-> end-to-end) también. Todo verificado con Playwright contra la DB real
-> a través de la UI, sin errores de consola. Notas importantes ya resueltas
-> (sección "Fase 3a/3b — Detalle de lo hecho"): en Next 16 el archivo se
-> llama `proxy.ts`, no `middleware.ts` (deprecado) — de momento NO hay
-> `proxy.ts`, la auth se resuelve por-ruta vía
-> `src/lib/server/auth/require-session.ts`; y `CreateDeviceApiKeyUseCase`
-> (pairing del plugin KOReader) sigue sin portar — es una ruta distinta a
-> la del Settings UI.
+> está completa** (2a-2d) y **la Fase 3a, 3b y 3c** también (logger, auth
+> local, Shelves, Account, Devices, y Plugin — todos end-to-end, incluyendo
+> `S3Storage` real por primera vez en la Fase 3c). Todo verificado con
+> Playwright contra datos reales (DB + S3 + GitHub) a través de la UI, sin
+> errores de consola. Notas importantes ya resueltas (secciones "Fase
+> 3a/3b/3c — Detalle de lo hecho"): en Next 16 el archivo se llama
+> `proxy.ts`, no `middleware.ts` — de momento NO hay `proxy.ts`, la auth se
+> resuelve por-ruta vía `src/lib/server/auth/require-session.ts`;
+> `CreateDeviceApiKeyUseCase` (pairing del plugin) sigue sin portar; y hay
+> un contenedor Docker `sake-seaweedfs` (S3 local, del propio
+> `docker-compose.selfhost.yaml`) que **ya estaba corriendo** de trabajo
+> previo del usuario — si no está arriba, instrucciones de cómo levantarlo
+> están en la sección de la Fase 3c.
 >
-> Vamos a arrancar la Fase 3c. Quedan sin conectar del Settings modal: la
-> pestaña **Plugin** (`plugin/koreader/releases`, `/latest`, `/download`,
-> `/upstream-version` — son rutas públicas según
-> `isPublicApiRoute` del `hooks.server.ts` original, sin cliente de
-> terceros, candidato más chico) y **Integrations** (Hardcover necesita
-> `HardcoverClient` nuevo; Z-Library mirrors + el login real de 2d
-> necesitan `ZLibraryClient` nuevo — candidatos más grandes). Antes de
-> escribir código, lee
-> `sake/src/routes/api/plugin/koreader/releases/+server.ts`,
-> `/latest/+server.ts`, `/download/+server.ts`,
-> `/upstream-version/+server.ts`, los use-cases que usan
-> (`KoreaderPluginArtifactService` ya está en `composition/foundation.ts`
-> del original, revisa qué hace), y gauge su tamaño real antes de
-> comprometerte a un alcance — decide tú si Plugin es de verdad el
-> candidato más chico una vez que leas el código, o si conviene otro orden.
-> Mismo patrón que siempre: plantea el alcance antes de escribir nada, y si
-> aparece una dependencia inesperada grande, dilo y propón cómo acotar en
-> vez de asumir que cabe todo en una iteración.
+> Vamos a arrancar la Fase 3d. Queda una sola pestaña del Settings modal
+> sin conectar: **Integrations**, que en realidad son dos sub-features
+> independientes — Hardcover progress sync (necesita un `HardcoverClient`
+> nuevo, llamadas a una API externa) y Z-Library mirrors (gestión de URLs
+> de mirror, más simple, sin cliente externo — es solo un repositorio de
+> config). El login real de Z-Library (ya mockeado en la Fase 2d) es una
+> tercera pieza, probablemente más grande (`ZLibraryClient`, usado también
+> por search/download que todavía no existen). Antes de escribir código,
+> lee
+> `sake/src/routes/api/integrations/hardcover/progress/+server.ts`,
+> `/progress/sync/+server.ts`,
+> `sake/src/routes/api/integrations/zlibrary/mirrors/+server.ts`, y los
+> use-cases/repos que usan (`GetHardcoverProgressSyncStatusUseCase`,
+> `UpdateHardcoverProgressSyncSettingUseCase`,
+> `TriggerHardcoverProgressSyncUseCase`, `HardcoverClient`,
+> `HardcoverProgressSyncService`,
+> `GetZLibraryMirrorSettingsUseCase`/`UpdateZLibraryMirrorSettingsUseCase`,
+> todos visibles en `sake/src/lib/server/application/composition/
+> foundation.ts` e `integrations.ts` del proyecto original). Gauge el
+> tamaño real de cada sub-feature por separado — es muy probable que una
+> mini-fase cubra mirrors y Hardcover, y el login real de Z-Library quede
+> para otra. Plantea el alcance antes de escribir nada, y si aparece algo
+> inesperadamente grande, dilo y propón cómo acotar en vez de asumir que
+> cabe todo.

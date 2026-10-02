@@ -12,13 +12,8 @@ import { DevicesPane } from "./devices-pane";
 import { notImplemented } from "./not-implemented";
 import { useAccountData } from "./use-account-data";
 import { useDevicesData } from "./use-devices-data";
-import {
-  mockAppVersion,
-  mockHardcoverStatus,
-  mockPluginReleases,
-  mockPluginUpstreamVersion,
-  mockZlibraryMirrors,
-} from "./mock-data";
+import { usePluginData } from "./use-plugin-data";
+import { mockAppVersion, mockHardcoverStatus, mockZlibraryMirrors } from "./mock-data";
 
 const SECTIONS = [
   { id: "app", label: "App", Icon: AppWindow },
@@ -50,6 +45,7 @@ export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin, onSessi
   const [activeSection, setActiveSection] = useState<SectionId>("app");
   const account = useAccountData({ enabled: open, onSessionEnded });
   const devices = useDevicesData(open);
+  const plugin = usePluginData(open);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -88,11 +84,15 @@ export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin, onSessi
             </TabsContent>
             <TabsContent value="plugin">
               <PluginPane
-                releasesInfo={mockPluginReleases}
-                releasesError={null}
-                upstreamVersionInfo={mockPluginUpstreamVersion}
-                upstreamVersionError={null}
+                releasesInfo={plugin.releasesInfo}
+                releasesError={plugin.releasesError}
+                isLoadingPluginReleases={plugin.isLoadingPluginReleases}
+                upstreamVersionInfo={plugin.upstreamVersionInfo}
+                upstreamVersionError={plugin.upstreamVersionError}
+                isCheckingPluginUpstreamVersion={plugin.isCheckingPluginUpstreamVersion}
                 formatDateTime={formatDateTime}
+                onRefresh={plugin.refreshReleases}
+                onCheckUpstream={plugin.checkUpstreamVersion}
               />
             </TabsContent>
             <TabsContent value="integrations">
