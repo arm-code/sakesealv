@@ -28,7 +28,8 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3c — Plugin pane (releases/latest/download/upstream-version) end-to-end, incluyendo S3Storage real por primera vez.
    - ✅ 3d — Z-Library mirrors (Integrations pane, mitad) end-to-end.
    - ✅ 3e — App pane (versión + estado de migración de DB) end-to-end. Con esto el Settings modal queda 100% real salvo Hardcover (bloqueado) y el login real de Z-Library (mockeado a propósito).
-   - ⬜ 3f+ — el resto: library/books (bloquea Hardcover real), zlibrary (search/download/login real, ZLibraryClient), OPDS, DAV, annotations, queue, stats, metadata, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
+   - ✅ 3f — library/books: **núcleo** (listar/ver detalle/leer EPUB/portada/asignar a estantes), verificado backend-only (sin UI todavía, `/library` sigue siendo el placeholder de Fase 4).
+   - ⬜ 3g+ — resto de library/books (sesión de scoping propia hizo el troceo, ver sección "Fase 3f"): progreso/rating, papelera, portadas (upload/import), metadata providers (otra sub-fase de scoping aparte), adquisición Z-Library real (search/download/login). Después de eso: OPDS, DAV, annotations, queue, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
 ---
@@ -803,40 +804,151 @@ cacheado) — mismos valores, sin errores de consola en ningún punto.
 
 ---
 
+## Fase 3f — Detalle de lo hecho (COMPLETA)
+
+**Sesión de scoping dedicada para `library/books`, tal como pidió el
+usuario.** Mapeo completo antes de escribir código: capa de datos (`Book`
+entity 84 líneas + `BookRepositoryPort` 53 + `BookRepository` 408 + helpers
+211 + `BookProgressHistoryRepository` 115 ≈ 871 líneas), 47 use-cases
+relacionados con books/library/progress/rating/trash/cover/download (3,353
+líneas combinadas), más dos subsistemas aparte: metadata providers (3,346
+líneas) y el cliente de Z-Library (1,071 líneas). Total si se tomara todo
+junto: ~8,600 líneas — confirmó que esto es un sub-proyecto de varias
+mini-fases, no una sola.
+
+**Troceo propuesto y confirmado con el usuario** (por dependencia, cada
+uno en su propia sesión futura): 3f núcleo (este) → 3g progreso/rating →
+3h papelera → 3i portadas (upload/import) → 3j+ metadata providers (otra
+sub-fase de scoping) → adquisición Z-Library real (ligada al login real ya
+diferido a Fase 4). También se decidió la metodología de verificación
+mientras no exista UI de biblioteca real: **backend-only, build + curl +
+inspección directa de DB/S3**, sin adelantar ninguna pieza de la Fase 4.
+
+**3f en sí se acotó más de lo que sugería el estimado inicial**: en vez de
+portar los 26 métodos de `BookRepositoryPort`, se recortó a los **2 que
+usan los use-cases elegidos** (`getAll`, `getById`) — mismo patrón de
+"recortar puertos a lo que se usa" que en fases anteriores. Igual con
+`ManagedBookCoverService.ts` (801 líneas originales, es el servicio que
+descarga/genera portadas desde Z-Library) — `GetLibraryCoverUseCase` solo
+necesita 2 funciones puras (`buildManagedBookCoverStorageKey`,
+`isValidManagedBookCoverFileName`) que se extrajeron a un archivo propio de
+~15 líneas, sin arrastrar la clase completa. Con eso, el footprint real de
+3f quedó en **~700 líneas**, bastante menor que la estimación inicial de
+scoping.
+
+**Alcance explícitamente excluido de 3f** (una ruta que casi se incluye
+por error): `/api/library/[title]` (`GetLibraryFileUseCase` GET +
+`PutLibraryFileUseCase` PUT + `DeleteLibraryFileUseCase` DELETE en el
+mismo route). Se decidió dejarlo fuera — el PUT es literalmente lo que
+escribe el archivo cuando se descarga un libro de Z-Library, así que esta
+ruta pertenece a la mini-fase de adquisición, no al núcleo de "ver tu
+colección". El núcleo usa `GetLibraryBookContentUseCase` (por `bookId`,
+específico del lector web EPUB) en su lugar.
+
+### Archivos creados
+- `src/lib/server/domain/book.ts` — entidad `Book` completa (todos los
+  campos, igual que el original; los tipos `CreateBookInput`/
+  `UpdateBookMetadataInput` se dejaron fuera por ahora, no los usa nada en
+  3f).
+- `src/lib/server/constants/mime-types.ts` — `mimeTypes`, verbatim.
+- `ports.ts` ganó `BookRepositoryPort` (recortado a `getAll`/`getById`,
+  comentario documentando qué falta y a qué mini-fase pertenece cada
+  método), y `ShelfRepositoryPort`/`DeviceDownloadRepositoryPort` se
+  extendieron con los métodos de asignación de estantes
+  (`listByIds`/`getBookShelfIds`/`getBookShelfIdsForBooks`/
+  `setBookShelfIds`) y `getByBookId` respectivamente.
+- `src/lib/server/infrastructure/repositories/book-repository.helpers.ts`
+  — `bookSelection`/`bookSelectionWithDownloadState`/`mapBookRow`/
+  `mapBookWithDownloadRow` (sin `toCreateBookRow`/`toUpdateBookMetadataRow`,
+  no hace falta todavía).
+- `src/lib/server/infrastructure/repositories/book-repository.ts` —
+  `BookRepository` con solo `getAll`/`getById`.
+- `src/lib/server/application/services/managed-book-cover.ts` — las 2
+  funciones puras que necesita `GetLibraryCoverUseCase`.
+- 5 use-cases: `list-library.ts`, `get-library-book-detail.ts`,
+  `get-library-book-content.ts`, `get-library-cover.ts`,
+  `set-book-shelves.ts`.
+- `shelf-repository.ts` y `device-download-repository.ts` extendidos
+  (métodos nuevos, mismo patrón de transacción Drizzle para
+  `setBookShelfIds` que el original).
+- 5 rutas, todas con `requireSession()` (ninguna está en el allowlist
+  público): `/api/library/list` (GET), `/api/library/[id]/detail` (GET),
+  `/api/library/[id]/content` (GET, stream EPUB), `/api/library/covers/
+  [fileName]` (GET), `/api/library/[id]/shelves` (PUT).
+- `composition.ts` — `bookRepository` + los 5 use-cases wireados,
+  reutilizando `shelfRepository`/`deviceDownloadRepository`/`storage` ya
+  existentes.
+
+### Verificación
+`bun run build` limpio (28 rutas en total). Backend-only por la decisión
+de metodología: script desechable (`_seed-library-3f.ts`, borrado antes de
+commit) insertó un libro real en `.data/dev.db` vía Drizzle directo y subió
+un EPUB falso + una portada falsa al bucket real de SeaweedFS
+(`library/test-book-3f.epub`, `covers/test-book-3f-cover.jpg`). Contra el
+build de producción real (`bun run start`) con `curl` y sesión real:
+- `GET /api/library/list` sin sesión → 401; con sesión → libro real con
+  `progressPercent`/`shelfIds` calculados.
+- `GET /api/library/:id/detail` → shape completo correcto.
+- `GET /api/library/:id/content` → sirve los bytes EPUB reales desde S3
+  con `Content-Type: application/epub+zip`.
+- `GET /api/library/covers/:fileName` → sirve los bytes de portada reales
+  desde S3 con el content-type correcto.
+- `PUT /api/library/:id/shelves` → creó un estante real, asignó el libro,
+  y se confirmó la persistencia re-consultando `detail` y `list` (ambos
+  reflejan `shelfIds` actualizado).
+- Casos borde: id inválido → 400, libro inexistente → 404, nombre de
+  portada con path traversal (`../../etc/passwd`) → 404 (rechazado por el
+  regex de nombre válido), portada inexistente con nombre válido → 404.
+
+No se tocó `/library` (sigue siendo el placeholder de Fase 4) ni se montó
+ninguna UI — consistente con la decisión de verificación tomada al
+iniciar esta fase.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
 > `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — **la Fase 2
-> está completa** (2a-2d) y **la Fase 3a-3e** también (logger, auth local,
-> Shelves, Account, Devices, Plugin, los mirrors de Z-Library, y el App
-> pane — todos end-to-end). Con esto **el Settings modal queda 100% real
-> salvo Hardcover** (bloqueado, ver abajo) **y el login real de
-> Z-Library** (mockeado a propósito, Fase 2d). Todo verificado con
-> Playwright contra datos reales (DB + S3 + GitHub) a través de la UI,
-> sin errores de consola. Notas importantes ya resueltas (secciones "Fase
-> 3a-3e — Detalle de lo hecho"): en Next 16 el archivo se llama
-> `proxy.ts`, no `middleware.ts` — de momento NO hay `proxy.ts`, la auth
-> se resuelve por-ruta vía `src/lib/server/auth/require-session.ts`;
+> está completa** (2a-2d) y **la Fase 3a-3f** también (logger, auth local,
+> Shelves, Account, Devices, Plugin, los mirrors de Z-Library, el App pane,
+> y ahora el **núcleo** de library/books — listar/ver detalle/leer EPUB/
+> portada/asignar a estantes). Con el App pane, el Settings modal quedó
+> 100% real salvo Hardcover (bloqueado, ver abajo) y el login real de
+> Z-Library (mockeado a propósito, Fase 2d). Notas importantes ya resueltas
+> (secciones "Fase 3a-3f — Detalle de lo hecho"): en Next 16 el archivo se
+> llama `proxy.ts`, no `middleware.ts` — de momento NO hay `proxy.ts`, la
+> auth se resuelve por-ruta vía `src/lib/server/auth/require-session.ts`;
 > `CreateDeviceApiKeyUseCase` sigue sin portar; hay un contenedor Docker
 > `sake-seaweedfs` (S3 local) que ya estaba corriendo de trabajo previo del
 > usuario (instrucciones para levantarlo en la sección de la Fase 3c); y
-> **Hardcover quedó completamente fuera** porque su servicio de sync real
-> depende de `BookRepository`/`Book`, que no existen hasta que se porte
-> library/books — no se intentó ni el status/toggle con un stub. Nota
-> operativa de la Fase 3e: si vas a levantar el servidor para verificar,
-> revisa primero que no haya un `bun run dev`/`bun run start` viejo
-> colgado en el puerto 3000 de una sesión anterior (`netstat -ano | grep
-> ':3000'` en Git Bash) — si `bun run start` falla con `EADDRINUSE` en
-> background no siempre es obvio, y terminarás verificando contra código
-> viejo sin darte cuenta.
+> **Hardcover sigue bloqueado** — su servicio de sync real necesita más que
+> solo `getAll`/`getById` de `BookRepository` (el resto del dominio
+> library/books todavía no existe). Nota operativa (ya pasó dos veces): si
+> vas a levantar el servidor para verificar, revisa primero que no haya un
+> `bun run dev`/`bun run start` viejo colgado en el puerto 3000 de una
+> sesión anterior (`netstat -ano | grep ':3000'` en Git Bash) — si `bun run
+> start` falla con `EADDRINUSE` en background no siempre es obvio, y
+> terminarás verificando contra código viejo sin darte cuenta.
 >
-> El frontero grande que sigue es **library/books** — el dominio que
-> bloquea Hardcover, el lector, y probablemente buena parte de lo que
-> queda de Fase 3. Dado su tamaño (es la mayor parte de las ~19,645
-> líneas originales de `src/lib/server/`), esa merece su propia sesión de
-> scoping dedicada en vez de intentar encararla como parche de otra
-> mini-fase — no asumas que cabe junto con ninguna otra cosa. Plantea el
-> alcance de lo que sea que sigue antes de escribir nada, mismo patrón que
-> siempre.
+> **La Fase 3f fue una sesión de scoping dedicada para library/books**
+> (dominio completo: ~8,600 líneas si se tomara junto — se trozó en
+> mini-fases por dependencia). Con el núcleo cerrado, lee la sección "Fase
+> 3f — Detalle de lo hecho" para el troceo completo y por qué quedó así:
+> el orden propuesto y confirmado con el usuario fue 3f núcleo (hecho) →
+> **3g progreso/rating** (siguiente candidato natural, pequeño: PutProgress/
+> GetProgress/PutWebReaderProgress/GetBookProgressHistory/UpdateBookRating/
+> ListLibraryRatings/UpdateLibraryBookState) → 3h papelera → 3i portadas
+> (upload/import) → 3j+ metadata providers (otra sub-fase de scoping, 3,346
+> líneas aparte) → adquisición Z-Library real (ligada al login real ya
+> diferido a Fase 4). **No asumas que 3g cabe igual de chico que se ve** —
+> igual que siempre, lee el código real primero y confirma el tamaño antes
+> de comprometerte. También sigue vigente la decisión de metodología: sin
+> UI de biblioteca real todavía (`/library` es el placeholder de Fase 4),
+> verificar cada mini-fase de library/books por build + curl + inspección
+> directa de DB/S3 (scripts desechables para sembrar datos, borrados antes
+> de commit), no por Playwright-contra-UI — eso vuelve cuando la Fase 4
+> construya la página real. Plantea el alcance de lo que sea que sigue
+> antes de escribir nada, mismo patrón que siempre.

@@ -1,10 +1,12 @@
-// Composition root — Fase 3a+3b+3c+3d+3e: auth local, shelves, Account/Devices
-// (API keys, logout-all, basic auth password, devices), el Plugin pane
-// (releases/latest/download/upstream-version), los mirrors de Z-Library y
-// ahora el App pane (versión + estado de migraciones) están wireados.
-// Cuando se migren más features, extender este archivo (igual que el original
-// `composition.ts` barrel, pero sin arrastrar subsistemas que aún no existen
-// en sake-next: library/books, zlibrary, metadata providers, annotations...).
+// Composition root — Fase 3a+3b+3c+3d+3e+3f: auth local, shelves, Account/
+// Devices (API keys, logout-all, basic auth password, devices), el Plugin
+// pane, los mirrors de Z-Library, el App pane, y ahora el núcleo de
+// library/books (listar/ver detalle/leer EPUB/portada/asignar a estantes)
+// están wireados. Cuando se migren más features, extender este archivo
+// (igual que el original `composition.ts` barrel, pero sin arrastrar
+// subsistemas que aún no existen en sake-next: progreso/rating, papelera,
+// portadas upload/import, metadata providers, adquisición Z-Library,
+// annotations...).
 import { UserRepository } from "@/lib/server/infrastructure/repositories/user-repository";
 import { UserSessionRepository } from "@/lib/server/infrastructure/repositories/user-session-repository";
 import { UserApiKeyRepository } from "@/lib/server/infrastructure/repositories/user-api-key-repository";
@@ -17,6 +19,7 @@ import { S3Storage } from "@/lib/server/infrastructure/storage/s3-storage";
 import { KoreaderPluginArtifactService } from "@/lib/server/application/services/koreader-plugin-artifact-service";
 import { ZLibraryMirrorSettingsRepository } from "@/lib/server/infrastructure/repositories/zlibrary-mirror-settings-repository";
 import { MigrationStatusRepository } from "@/lib/server/infrastructure/repositories/migration-status-repository";
+import { BookRepository } from "@/lib/server/infrastructure/repositories/book-repository";
 import { createLazySingleton } from "@/lib/server/utils/createLazySingleton";
 import { resolveZLibraryMirrorUrls } from "@/lib/server/config/zlibrary";
 
@@ -46,6 +49,11 @@ import { GetKoreaderPluginUpstreamVersionUseCase } from "@/lib/server/applicatio
 import { GetKoreaderPluginDownloadUseCase } from "@/lib/server/application/use-cases/get-koreader-plugin-download";
 import { GetZLibraryMirrorSettingsUseCase, UpdateZLibraryMirrorSettingsUseCase } from "@/lib/server/application/use-cases/zlibrary-mirror-settings";
 import { GetAppVersionUseCase } from "@/lib/server/application/use-cases/get-app-version";
+import { ListLibraryUseCase } from "@/lib/server/application/use-cases/list-library";
+import { GetLibraryBookDetailUseCase } from "@/lib/server/application/use-cases/get-library-book-detail";
+import { GetLibraryBookContentUseCase } from "@/lib/server/application/use-cases/get-library-book-content";
+import { GetLibraryCoverUseCase } from "@/lib/server/application/use-cases/get-library-cover";
+import { SetBookShelvesUseCase } from "@/lib/server/application/use-cases/set-book-shelves";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -61,6 +69,7 @@ export const zlibraryMirrorSettingsRepository = new ZLibraryMirrorSettingsReposi
   resolveZLibraryMirrorUrls(process.env.ZLIBRARY_BASE_URL),
 );
 export const migrationStatusRepository = new MigrationStatusRepository();
+export const bookRepository = new BookRepository();
 
 export const resolveRequestAuthUseCase = new ResolveRequestAuthUseCase(userRepository, userSessionRepository, userApiKeyRepository);
 export const getAuthStatusUseCase = new GetAuthStatusUseCase(userRepository);
@@ -102,3 +111,9 @@ export const getZLibraryMirrorSettingsUseCase = new GetZLibraryMirrorSettingsUse
 export const updateZLibraryMirrorSettingsUseCase = new UpdateZLibraryMirrorSettingsUseCase(zlibraryMirrorSettingsRepository);
 
 export const getAppVersionUseCase = new GetAppVersionUseCase(migrationStatusRepository);
+
+export const listLibraryUseCase = new ListLibraryUseCase(bookRepository, shelfRepository);
+export const getLibraryBookDetailUseCase = new GetLibraryBookDetailUseCase(bookRepository, deviceDownloadRepository, shelfRepository);
+export const getLibraryBookContentUseCase = new GetLibraryBookContentUseCase(bookRepository, storage);
+export const getLibraryCoverUseCase = new GetLibraryCoverUseCase(storage);
+export const setBookShelvesUseCase = new SetBookShelvesUseCase(bookRepository, shelfRepository);

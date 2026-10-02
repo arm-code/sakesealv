@@ -1,9 +1,9 @@
 import type { ShelfRepositoryPort } from "@/lib/server/application/ports";
 import { drizzleDb } from "@/lib/server/infrastructure/db/client";
-import { shelves } from "@/lib/server/infrastructure/db/schema";
+import { bookShelves, shelves } from "@/lib/server/infrastructure/db/schema";
 import { createChildLogger } from "@/lib/server/infrastructure/logging/logger";
 import { createEmptyRuleGroup, isRuleGroup, type LibraryShelf, type RuleGroup } from "@/lib/types/library";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 
 function deserializeRuleGroup(
   raw: string,
@@ -49,6 +49,16 @@ export class ShelfRepository implements ShelfRepositoryPort {
 
   async list(): Promise<LibraryShelf[]> {
     const rows = await drizzleDb.select().from(shelves).orderBy(shelves.sortOrder, shelves.name);
+    return rows.map((row) => this.mapRow(row));
+  }
+
+  async listByIds(ids: number[]): Promise<LibraryShelf[]> {
+    if (ids.length === 0) return [];
+    const rows = await drizzleDb
+      .select()
+      .from(shelves)
+      .where(inArray(shelves.id, ids))
+      .orderBy(shelves.sortOrder, shelves.name);
     return rows.map((row) => this.mapRow(row));
   }
 
@@ -116,5 +126,43 @@ WHERE "id" IN (${idList})`,
   async delete(id: number): Promise<void> {
     await drizzleDb.delete(shelves).where(eq(shelves.id, id));
     this.repoLogger.info({ event: "shelf.deleted", shelfId: id }, "Shelf row deleted");
+  }
+
+  async getBookShelfIds(bookId: number): Promise<number[]> {
+    const rows = await drizzleDb.select({ shelfId: bookShelves.shelfId }).from(bookShelves).where(eq(bookShelves.bookId, bookId));
+    return rows.map((row) => row.shelfId).sort((a, b) => a - b);
+  }
+
+  async getBookShelfIdsForBooks(bookIds: number[]): Promise<Record<number, number[]>> {
+    const result: Record<number, number[]> = {};
+    for (const bookId of bookIds) result[bookId] = [];
+    if (bookIds.length === 0) return result;
+
+    const rows = await drizzleDb
+      .select({ bookId: bookShelves.bookId, shelfId: bookShelves.shelfId })
+      .from(bookShelves)
+      .where(inArray(bookShelves.bookId, bookIds));
+
+    for (const row of rows) {
+      if (!result[row.bookId]) result[row.bookId] = [];
+      result[row.bookId].push(row.shelfId);
+    }
+    for (const bookId of Object.keys(result)) {
+      result[Number(bookId)].sort((a, b) => a - b);
+    }
+    return result;
+  }
+
+  async setBookShelfIds(bookId: number, shelfIds: number[]): Promise<void> {
+    const uniqueShelfIds = [...new Set(shelfIds)].sort((a, b) => a - b);
+    const now = new Date().toISOString();
+
+    await drizzleDb.transaction(async (tx) => {
+      await tx.delete(bookShelves).where(eq(bookShelves.bookId, bookId));
+      if (uniqueShelfIds.length === 0) return;
+      await tx.insert(bookShelves).values(uniqueShelfIds.map((shelfId) => ({ bookId, shelfId, createdAt: now })));
+    });
+
+    this.repoLogger.info({ event: "book.shelves.updated", bookId, shelfIds: uniqueShelfIds }, "Book shelf membership updated");
   }
 }

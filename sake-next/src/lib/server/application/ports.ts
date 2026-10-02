@@ -7,6 +7,7 @@ import type {
   UserApiKey,
   UserSession,
 } from "@/lib/server/domain/auth";
+import type { Book } from "@/lib/server/domain/book";
 import type { Device } from "@/lib/server/domain/device";
 import type { PluginRelease, UpsertPluginReleaseInput } from "@/lib/server/domain/plugin-release";
 
@@ -38,11 +39,30 @@ export interface UserApiKeyRepositoryPort {
 
 export interface ShelfRepositoryPort {
   list(): Promise<LibraryShelf[]>;
+  listByIds(ids: number[]): Promise<LibraryShelf[]>;
   getById(id: number): Promise<LibraryShelf | undefined>;
   create(input: { name: string; icon: string; ruleGroup: RuleGroup }): Promise<LibraryShelf>;
   update(id: number, input: { name: string; icon: string; ruleGroup: RuleGroup }): Promise<LibraryShelf | undefined>;
   reorder(shelfIds: number[]): Promise<void>;
   delete(id: number): Promise<void>;
+  getBookShelfIds(bookId: number): Promise<number[]>;
+  getBookShelfIdsForBooks(bookIds: number[]): Promise<Record<number, number[]>>;
+  setBookShelfIds(bookId: number, shelfIds: number[]): Promise<void>;
+}
+
+// Recortado a lo que usan ListLibraryUseCase/GetLibraryBookDetailUseCase/
+// GetLibraryBookContentUseCase/SetBookShelvesUseCase (Fase 3f — núcleo:
+// listar/ver/leer/asignar estantes). El resto del original (getAllForStats,
+// getByIdIncludingTrashed, getByZLibId*, getByStorageKey*, getByTitle*,
+// hasOtherBookWithStorageKey, listStorageKeysWithExternalReferences, create,
+// updateMetadata, updateHardcoverId, delete, resetDownloadStatus,
+// updateProgress, touchProgressUpdatedAt, updateRating, updateState,
+// getNotDownloadedByDevice, getBooksWithNewProgressForDevice, getTrashed,
+// moveToTrash, restoreFromTrash, getExpiredTrash, count) pertenece a
+// mini-fases futuras (progreso/rating, papelera, adquisición, dispositivos).
+export interface BookRepositoryPort {
+  getAll(): Promise<Book[]>;
+  getById(id: number): Promise<Book | undefined>;
 }
 
 // Recortado a lo que usan ListDevicesUseCase/DeleteDeviceUseCase. `upsert` y
@@ -54,8 +74,13 @@ export interface DeviceRepositoryPort {
   deleteByUserIdAndDeviceId(userId: number, deviceId: string): Promise<boolean>;
 }
 
-// Recortado a lo único que usa DeleteDeviceUseCase.
+// Recortado a lo que usan DeleteDeviceUseCase (deleteByDeviceId) y
+// GetLibraryBookDetailUseCase (getByBookId, Fase 3f). El resto del original
+// (getAll/getByDevice/create/ensureByDeviceAndBook/deleteByBookIdAndDeviceId/
+// delete + wrappers static) pertenece al flujo de descarga a dispositivos,
+// fuera de alcance todavía.
 export interface DeviceDownloadRepositoryPort {
+  getByBookId(bookId: number): Promise<{ deviceId: string }[]>;
   deleteByDeviceId(deviceId: string): Promise<void>;
 }
 
