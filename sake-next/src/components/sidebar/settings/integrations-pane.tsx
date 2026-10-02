@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,11 @@ interface IntegrationsPaneProps {
   isSaving?: boolean;
   isSyncing?: boolean;
   formatDateTime: (value: string | null) => string;
-  initialMirrors: string[];
+  mirrors: string[];
+  mirrorsError: string | null;
+  isLoadingMirrors?: boolean;
+  isSavingMirrors?: boolean;
+  onSaveMirrors: (urls: string[]) => Promise<boolean>;
 }
 
 const MAX_MIRRORS = 5;
@@ -37,9 +41,17 @@ export function IntegrationsPane({
   isLoading = false,
   isSyncing = false,
   formatDateTime,
-  initialMirrors,
+  mirrors: savedMirrors,
+  mirrorsError,
+  isLoadingMirrors = false,
+  isSavingMirrors = false,
+  onSaveMirrors,
 }: IntegrationsPaneProps) {
-  const [mirrors, setMirrors] = useState(initialMirrors);
+  const [mirrors, setMirrors] = useState(savedMirrors);
+
+  useEffect(() => {
+    setMirrors(savedMirrors);
+  }, [savedMirrors]);
 
   const unavailableReason = status?.demoMode
     ? "Outbound integrations are disabled in demo mode."
@@ -89,73 +101,83 @@ export function IntegrationsPane({
             </p>
           </div>
 
-          <div className="flex flex-col gap-2">
-            {mirrors.map((url, index) => (
-              <div key={index} className="flex items-center gap-1.5">
-                <Label htmlFor={`mirror-${index}`} className="sr-only">
-                  Mirror {index + 1}
-                </Label>
-                <Input
-                  id={`mirror-${index}`}
-                  type="url"
-                  value={url}
-                  placeholder="https://mirror.example"
-                  onChange={(event) =>
-                    setMirrors((prev) => prev.map((v, i) => (i === index ? event.target.value : v)))
-                  }
-                />
+          {mirrorsError ? (
+            <p className="text-sm text-destructive">{mirrorsError}</p>
+          ) : isLoadingMirrors ? (
+            <p className="text-sm text-muted-foreground">Loading mirror configuration...</p>
+          ) : (
+            <>
+              <div className="flex flex-col gap-2">
+                {mirrors.map((url, index) => (
+                  <div key={index} className="flex items-center gap-1.5">
+                    <Label htmlFor={`mirror-${index}`} className="sr-only">
+                      Mirror {index + 1}
+                    </Label>
+                    <Input
+                      id={`mirror-${index}`}
+                      type="url"
+                      value={url}
+                      placeholder="https://mirror.example"
+                      disabled={isSavingMirrors}
+                      onChange={(event) =>
+                        setMirrors((prev) => prev.map((v, i) => (i === index ? event.target.value : v)))
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      disabled={index === 0 || isSavingMirrors}
+                      aria-label={`Move mirror ${index + 1} up`}
+                      onClick={() => moveMirror(index, -1)}
+                    >
+                      <ArrowUp className="size-4" aria-hidden="true" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      disabled={index === mirrors.length - 1 || isSavingMirrors}
+                      aria-label={`Move mirror ${index + 1} down`}
+                      onClick={() => moveMirror(index, 1)}
+                    >
+                      <ArrowDown className="size-4" aria-hidden="true" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      disabled={mirrors.length === 1 || isSavingMirrors}
+                      aria-label={`Remove mirror ${index + 1}`}
+                      onClick={() => setMirrors((prev) => prev.filter((_, i) => i !== index))}
+                    >
+                      <X className="size-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
                 <Button
                   type="button"
                   variant="outline"
-                  size="icon"
-                  disabled={index === 0}
-                  aria-label={`Move mirror ${index + 1} up`}
-                  onClick={() => moveMirror(index, -1)}
+                  size="sm"
+                  disabled={mirrors.length >= MAX_MIRRORS || isSavingMirrors}
+                  onClick={() => setMirrors((prev) => [...prev, ""])}
                 >
-                  <ArrowUp className="size-4" aria-hidden="true" />
+                  Add mirror
                 </Button>
                 <Button
                   type="button"
-                  variant="outline"
-                  size="icon"
-                  disabled={index === mirrors.length - 1}
-                  aria-label={`Move mirror ${index + 1} down`}
-                  onClick={() => moveMirror(index, 1)}
+                  size="sm"
+                  disabled={isSavingMirrors}
+                  onClick={() => void onSaveMirrors(mirrors)}
                 >
-                  <ArrowDown className="size-4" aria-hidden="true" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  disabled={mirrors.length === 1}
-                  aria-label={`Remove mirror ${index + 1}`}
-                  onClick={() => setMirrors((prev) => prev.filter((_, i) => i !== index))}
-                >
-                  <X className="size-4" aria-hidden="true" />
+                  {isSavingMirrors ? "Saving..." : "Save mirrors"}
                 </Button>
               </div>
-            ))}
-          </div>
-
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={mirrors.length >= MAX_MIRRORS}
-              onClick={() => setMirrors((prev) => [...prev, ""])}
-            >
-              Add mirror
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => notImplemented("Saving mirror configuration")}
-            >
-              Save mirrors
-            </Button>
-          </div>
+            </>
+          )}
         </div>
       </div>
 

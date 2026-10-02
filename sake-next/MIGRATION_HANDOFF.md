@@ -26,7 +26,8 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3a — Logger + auth local (bootstrap/login/logout/status) + Shelves end-to-end.
    - ✅ 3b — Account pane (me/api-keys/logout-all/basic-password) + Devices pane end-to-end.
    - ✅ 3c — Plugin pane (releases/latest/download/upstream-version) end-to-end, incluyendo S3Storage real por primera vez.
-   - ⬜ 3d+ — el resto: library/books, zlibrary (search/download/login real), OPDS, DAV, annotations, queue, stats, metadata, Hardcover, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
+   - ✅ 3d — Z-Library mirrors (Integrations pane, mitad) end-to-end.
+   - ⬜ 3e+ — el resto: library/books (bloquea Hardcover real), zlibrary (search/download/login real, ZLibraryClient), OPDS, DAV, annotations, queue, stats, metadata, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
 ---
@@ -669,47 +670,110 @@ mostrando "Up to date". Sin errores de consola.
 
 ---
 
+## Fase 3d — Detalle de lo hecho (COMPLETA)
+
+**Alcance acotado al leer el código, confirmando la sospecha del usuario:**
+`HardcoverProgressSyncService.ts` (495 líneas) importa `BookRepositoryPort`
+y la entidad `Book` — el `.reconcile()` real itera sobre libros de la
+librería para sincronizar progreso de lectura. **Ese dominio
+(library/books) no existe todavía en `sake-next` en absoluto** — ni
+siquiera `GetHardcoverProgressSyncStatusUseCase` (29 líneas, el más chico)
+se puede portar con sentido sin inventar un stub falso del lado del
+service de sync. **Decisión: Hardcover queda completamente fuera de esta
+fase**, incluyendo status/toggle — no solo el trigger de sync real. Se
+retoma cuando se porte library/books (probablemente como parte de esa
+fase, no antes). Z-Library mirrors, en cambio, resultó exactamente del
+tamaño esperado (~150 líneas, sin cliente externo — es solo
+config/repositorio) y se portó completo.
+
+### Archivos creados
+- `src/lib/server/config/zlibrary.ts` — solo
+  `resolveZLibraryMirrorUrls`/`normalizeZLibraryMirrorUrls`/
+  `normalizeZLibraryUrl` (validación de URLs HTTPS, máx 5 mirrors). Se
+  dejaron fuera `resolveZLibraryBaseUrl`/`buildZLibraryUrl`/las constantes
+  de timeout — son del `ZLibraryClient` real (búsqueda/descarga), no de la
+  gestión de mirrors en sí.
+- `src/lib/server/config/demo-mode.ts` — `isDemoMode()`, 3 líneas, puerto
+  verbatim (no existía nada de demo mode en `sake-next` todavía).
+- `ports.ts` ganó `ZLibraryMirrorSettingsPort` (sin recortar, se usan los
+  2 métodos).
+- `src/lib/server/infrastructure/repositories/zlibrary-mirror-settings-repository.ts`.
+- `src/lib/server/application/use-cases/zlibrary-mirror-settings.ts` —
+  ambos use-cases (`Get`/`Update`) en un solo archivo, igual que el
+  original los organizaba juntos.
+- 1 route handler protegido con `requireSession()` (a diferencia de las
+  rutas de Plugin, estas sí requieren sesión en el original — las usa el
+  navegador desde Settings, no el dispositivo KOReader):
+  `/api/integrations/zlibrary/mirrors` (GET, PUT).
+- `composition.ts` — `zlibraryMirrorSettingsRepository` se instancia
+  **eager** (no lazy singleton) pasándole
+  `resolveZLibraryMirrorUrls(process.env.ZLIBRARY_BASE_URL)` como fallback
+  — mismo patrón que el `foundation.ts` original. No requiere la env var
+  (tiene default `https://z-lib.gl` si no está seteada).
+
+### Frontend: una sola pestaña, dos mitades con estado distinto
+`integrations-pane.tsx` ahora es un caso mixto a propósito: la sección
+**Mirrors** está 100% conectada (`use-zlibrary-mirrors.ts`, carga al abrir
+el modal, guarda de verdad, persiste entre reloads), mientras que
+**Hardcover**, debajo en la misma pestaña, **sigue mockeada** con
+`notImplemented()` — documentado en el propio componente/handoff, no es un
+olvido. El patrón de sincronización del draft de edición (`mirrors` local
++ `useEffect` para resetear desde el valor guardado del servidor) es el
+mismo que ya se usaba para el password de basic-auth en Account (Fase 3b).
+
+### Verificación
+`bun run build` limpio (25 rutas API en total — el build tardó ~4.4min
+esta vez en vez de los ~10-35s habituales, probablemente contención de
+I/O/antivirus en la máquina, no un problema del código). Probado con
+`curl`: 401 sin sesión, fallback por defecto (`https://z-lib.gl`) sin fila
+en DB, replace + persistencia, y validación real (URL no-HTTPS rechazada,
+array vacío rechazado). Luego **end-to-end con Playwright a través de la
+UI real**: editar/añadir mirrors, guardar (con toast de confirmación), y
+**reload completo de página** para confirmar que los 3 mirrors
+persistieron en el servidor — con Hardcover visible debajo mostrando sus
+datos mock sin interferir.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
 > `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — **la Fase 2
-> está completa** (2a-2d) y **la Fase 3a, 3b y 3c** también (logger, auth
-> local, Shelves, Account, Devices, y Plugin — todos end-to-end, incluyendo
-> `S3Storage` real por primera vez en la Fase 3c). Todo verificado con
-> Playwright contra datos reales (DB + S3 + GitHub) a través de la UI, sin
-> errores de consola. Notas importantes ya resueltas (secciones "Fase
-> 3a/3b/3c — Detalle de lo hecho"): en Next 16 el archivo se llama
-> `proxy.ts`, no `middleware.ts` — de momento NO hay `proxy.ts`, la auth se
-> resuelve por-ruta vía `src/lib/server/auth/require-session.ts`;
-> `CreateDeviceApiKeyUseCase` (pairing del plugin) sigue sin portar; y hay
-> un contenedor Docker `sake-seaweedfs` (S3 local, del propio
-> `docker-compose.selfhost.yaml`) que **ya estaba corriendo** de trabajo
-> previo del usuario — si no está arriba, instrucciones de cómo levantarlo
-> están en la sección de la Fase 3c.
+> está completa** (2a-2d) y **la Fase 3a, 3b, 3c y 3d** también (logger,
+> auth local, Shelves, Account, Devices, Plugin, y los mirrors de
+> Z-Library — todos end-to-end). Todo verificado con Playwright contra
+> datos reales (DB + S3 + GitHub) a través de la UI, sin errores de
+> consola. Notas importantes ya resueltas (secciones "Fase 3a-3d — Detalle
+> de lo hecho"): en Next 16 el archivo se llama `proxy.ts`, no
+> `middleware.ts` — de momento NO hay `proxy.ts`, la auth se resuelve
+> por-ruta vía `src/lib/server/auth/require-session.ts`;
+> `CreateDeviceApiKeyUseCase` sigue sin portar; hay un contenedor Docker
+> `sake-seaweedfs` (S3 local) que ya estaba corriendo de trabajo previo del
+> usuario (instrucciones para levantarlo en la sección de la Fase 3c); y
+> **Hardcover quedó completamente fuera** porque su servicio de sync real
+> depende de `BookRepository`/`Book`, que no existen hasta que se porte
+> library/books — no se intentó ni el status/toggle con un stub.
 >
-> Vamos a arrancar la Fase 3d. Queda una sola pestaña del Settings modal
-> sin conectar: **Integrations**, que en realidad son dos sub-features
-> independientes — Hardcover progress sync (necesita un `HardcoverClient`
-> nuevo, llamadas a una API externa) y Z-Library mirrors (gestión de URLs
-> de mirror, más simple, sin cliente externo — es solo un repositorio de
-> config). El login real de Z-Library (ya mockeado en la Fase 2d) es una
-> tercera pieza, probablemente más grande (`ZLibraryClient`, usado también
-> por search/download que todavía no existen). Antes de escribir código,
-> lee
-> `sake/src/routes/api/integrations/hardcover/progress/+server.ts`,
-> `/progress/sync/+server.ts`,
-> `sake/src/routes/api/integrations/zlibrary/mirrors/+server.ts`, y los
-> use-cases/repos que usan (`GetHardcoverProgressSyncStatusUseCase`,
-> `UpdateHardcoverProgressSyncSettingUseCase`,
-> `TriggerHardcoverProgressSyncUseCase`, `HardcoverClient`,
-> `HardcoverProgressSyncService`,
-> `GetZLibraryMirrorSettingsUseCase`/`UpdateZLibraryMirrorSettingsUseCase`,
-> todos visibles en `sake/src/lib/server/application/composition/
-> foundation.ts` e `integrations.ts` del proyecto original). Gauge el
-> tamaño real de cada sub-feature por separado — es muy probable que una
-> mini-fase cubra mirrors y Hardcover, y el login real de Z-Library quede
-> para otra. Plantea el alcance antes de escribir nada, y si aparece algo
-> inesperadamente grande, dilo y propón cómo acotar en vez de asumir que
-> cabe todo.
+> Con esto, del Settings modal **solo queda sin conectar la pestaña App**
+> (versión de la app + estado de migración de DB) — parece chica y
+> autocontenida (no depende de books ni de clientes externos). Antes de
+> escribir código, lee
+> `sake/src/routes/api/app/version/+server.ts`, el
+> `GetAppVersionUseCase` y el `MigrationStatusRepository` que usa (visibles
+> en `sake/src/lib/server/application/composition/integrations.ts` y
+> `foundation.ts`), gauge su tamaño real, y confirma que de verdad es así
+> de chico antes de comprometerte — si lo es, ciérralo en una mini-fase
+> corta (3e) y con eso el Settings modal completo queda 100% real salvo
+> Hardcover (documentado como bloqueado) y el login real de Z-Library
+> (mockeado a propósito, Fase 2d).
+>
+> Después de eso, el frontero grande que sigue es **library/books** — el
+> dominio que bloquea Hardcover, el lector, y probablemente buena parte de
+> lo que queda de Fase 3. Dado su tamaño (es la mayor parte de las ~19,645
+> líneas originales de `src/lib/server/`), esa merece su propia sesión de
+> scoping dedicada en vez de intentar encararla como parche de otra
+> mini-fase — no asumas que cabe junto con App ni con ninguna otra cosa.
+> Plantea el alcance de lo que sea que sigue antes de escribir nada, mismo
+> patrón que siempre.

@@ -14,7 +14,9 @@ import { DeviceProgressDownloadRepository } from "@/lib/server/infrastructure/re
 import { PluginReleaseRepository } from "@/lib/server/infrastructure/repositories/plugin-release-repository";
 import { S3Storage } from "@/lib/server/infrastructure/storage/s3-storage";
 import { KoreaderPluginArtifactService } from "@/lib/server/application/services/koreader-plugin-artifact-service";
+import { ZLibraryMirrorSettingsRepository } from "@/lib/server/infrastructure/repositories/zlibrary-mirror-settings-repository";
 import { createLazySingleton } from "@/lib/server/utils/createLazySingleton";
+import { resolveZLibraryMirrorUrls } from "@/lib/server/config/zlibrary";
 
 import { ResolveRequestAuthUseCase } from "@/lib/server/application/use-cases/resolve-request-auth";
 import { GetAuthStatusUseCase } from "@/lib/server/application/use-cases/get-auth-status";
@@ -40,6 +42,7 @@ import { GetLatestKoreaderPluginUseCase } from "@/lib/server/application/use-cas
 import { ListKoreaderPluginReleasesUseCase } from "@/lib/server/application/use-cases/list-koreader-plugin-releases";
 import { GetKoreaderPluginUpstreamVersionUseCase } from "@/lib/server/application/use-cases/get-koreader-plugin-upstream-version";
 import { GetKoreaderPluginDownloadUseCase } from "@/lib/server/application/use-cases/get-koreader-plugin-download";
+import { GetZLibraryMirrorSettingsUseCase, UpdateZLibraryMirrorSettingsUseCase } from "@/lib/server/application/use-cases/zlibrary-mirror-settings";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -51,6 +54,9 @@ export const deviceProgressDownloadRepository = new DeviceProgressDownloadReposi
 export const pluginReleaseRepository = new PluginReleaseRepository();
 export const storage = createLazySingleton(() => new S3Storage());
 export const koreaderPluginArtifactService = new KoreaderPluginArtifactService();
+export const zlibraryMirrorSettingsRepository = new ZLibraryMirrorSettingsRepository(
+  resolveZLibraryMirrorUrls(process.env.ZLIBRARY_BASE_URL),
+);
 
 export const resolveRequestAuthUseCase = new ResolveRequestAuthUseCase(userRepository, userSessionRepository, userApiKeyRepository);
 export const getAuthStatusUseCase = new GetAuthStatusUseCase(userRepository);
@@ -87,3 +93,6 @@ export const getLatestKoreaderPluginUseCase = new GetLatestKoreaderPluginUseCase
 export const listKoreaderPluginReleasesUseCase = new ListKoreaderPluginReleasesUseCase(pluginReleaseRepository);
 export const getKoreaderPluginUpstreamVersionUseCase = new GetKoreaderPluginUpstreamVersionUseCase(pluginReleaseRepository);
 export const getKoreaderPluginDownloadUseCase = new GetKoreaderPluginDownloadUseCase(storage, pluginReleaseRepository);
+
+export const getZLibraryMirrorSettingsUseCase = new GetZLibraryMirrorSettingsUseCase(zlibraryMirrorSettingsRepository);
+export const updateZLibraryMirrorSettingsUseCase = new UpdateZLibraryMirrorSettingsUseCase(zlibraryMirrorSettingsRepository);

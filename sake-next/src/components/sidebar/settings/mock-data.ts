@@ -1,9 +1,11 @@
 import type { HardcoverProgressSyncStatus } from "@/lib/types/integrations";
 import type { AppVersionResponse } from "@/lib/types/app-version";
 
-// Datos de ejemplo para las pestañas que la Fase 3 todavía no conecta
-// (App/Integrations). Account, Devices y Plugin ya pegan contra /api real
-// desde la Fase 3b/3c — sus mocks se quitaron de aquí.
+// Datos de ejemplo para lo que la Fase 3 todavía no conecta: App, y la
+// parte de Hardcover dentro de Integrations (depende de BookRepository,
+// que no existe hasta que se porte el dominio de library/books — ver
+// sección "Fase 3d" del handoff). Account, Devices, Plugin y los mirrors
+// de Z-Library ya pegan contra /api real.
 
 export const mockAppVersion: AppVersionResponse = {
   version: "0.1.0-dev",
@@ -32,5 +34,3 @@ export const mockHardcoverStatus: HardcoverProgressSyncStatus = {
     skipped: 3,
   },
 };
-
-export const mockZlibraryMirrors: string[] = ["https://z-library.sk"];

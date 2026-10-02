@@ -85,3 +85,8 @@ export interface StoragePort {
   delete(key: string): Promise<void>;
   list(prefix: string): Promise<StorageObjectInfo[]>;
 }
+
+export interface ZLibraryMirrorSettingsPort {
+  get(): Promise<readonly string[]>;
+  replace(urls: readonly string[]): Promise<readonly string[]>;
+}

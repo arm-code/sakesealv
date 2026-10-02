@@ -13,7 +13,8 @@ import { notImplemented } from "./not-implemented";
 import { useAccountData } from "./use-account-data";
 import { useDevicesData } from "./use-devices-data";
 import { usePluginData } from "./use-plugin-data";
-import { mockAppVersion, mockHardcoverStatus, mockZlibraryMirrors } from "./mock-data";
+import { useZlibraryMirrors } from "./use-zlibrary-mirrors";
+import { mockAppVersion, mockHardcoverStatus } from "./mock-data";
 
 const SECTIONS = [
   { id: "app", label: "App", Icon: AppWindow },
@@ -46,6 +47,7 @@ export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin, onSessi
   const account = useAccountData({ enabled: open, onSessionEnded });
   const devices = useDevicesData(open);
   const plugin = usePluginData(open);
+  const zlibraryMirrors = useZlibraryMirrors(open);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -104,7 +106,11 @@ export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin, onSessi
                 onOpenZLibraryLogin={onOpenZLibraryLogin}
                 onLogoutZLibrary={() => notImplemented("Logging out of Z-Library (Phase 2d)")}
                 formatDateTime={formatDateTime}
-                initialMirrors={mockZlibraryMirrors}
+                mirrors={zlibraryMirrors.mirrors}
+                mirrorsError={zlibraryMirrors.mirrorsError}
+                isLoadingMirrors={zlibraryMirrors.isLoadingMirrors}
+                isSavingMirrors={zlibraryMirrors.isSavingMirrors}
+                onSaveMirrors={zlibraryMirrors.saveMirrors}
               />
             </TabsContent>
             <TabsContent value="account">
