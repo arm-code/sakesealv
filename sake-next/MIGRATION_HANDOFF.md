@@ -27,7 +27,8 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3b — Account pane (me/api-keys/logout-all/basic-password) + Devices pane end-to-end.
    - ✅ 3c — Plugin pane (releases/latest/download/upstream-version) end-to-end, incluyendo S3Storage real por primera vez.
    - ✅ 3d — Z-Library mirrors (Integrations pane, mitad) end-to-end.
-   - ⬜ 3e+ — el resto: library/books (bloquea Hardcover real), zlibrary (search/download/login real, ZLibraryClient), OPDS, DAV, annotations, queue, stats, metadata, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
+   - ✅ 3e — App pane (versión + estado de migración de DB) end-to-end. Con esto el Settings modal queda 100% real salvo Hardcover (bloqueado) y el login real de Z-Library (mockeado a propósito).
+   - ⬜ 3f+ — el resto: library/books (bloquea Hardcover real), zlibrary (search/download/login real, ZLibraryClient), OPDS, DAV, annotations, queue, stats, metadata, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
 ---
@@ -735,45 +736,107 @@ datos mock sin interferir.
 
 ---
 
+## Fase 3e — Detalle de lo hecho (COMPLETA)
+
+**Scoping confirmado antes de escribir código:** se leyeron los 5 archivos
+reales que el usuario pidió gauge-ar
+(`sake/src/routes/api/app/version/+server.ts` 40 líneas,
+`GetAppVersionUseCase.ts` 68 líneas, `webappVersion.ts` 26 líneas,
+`MigrationStatusRepository.ts` 211 líneas, `MigrationStatusPort.ts` 10
+líneas — total ~355 líneas). Confirmado: cero dependencias de
+books/clientes externos, toda la lógica es Node puro (`crypto`/`fs`/`path`)
++ Drizzle leyendo `drizzle/meta/_journal.json` y la tabla
+`__drizzle_migrations`, infraestructura que `sake-next` ya tenía desde la
+Fase 1 (carpeta `drizzle/` copiada + migraciones ya aplicadas en
+`.data/dev.db`). Cupo entera en una mini-fase corta, tal como se
+sospechaba.
+
+### Archivos creados
+- `ports.ts` ganó `MigrationStatusPort`/`MigrationStatusSnapshot` (sin
+  recortar — un solo método, `getSnapshot()`).
+- `src/lib/server/infrastructure/repositories/migration-status-repository.ts`
+  — port verbatim del original: hashea cada `drizzle/<tag>.sql` con
+  SHA-256, cachea el journal en memoria, cruza contra la fila más reciente
+  de `__drizzle_migrations` vía `drizzleDb.$client.execute()` con SQL
+  crudo. Único cambio real: `resolveProjectRoot()` del original se
+  colapsó a `process.cwd()` directo (ya no hace falta la indirección, no
+  hay nada SvelteKit-específico que resolver).
+- `src/lib/webapp-version.ts` — `createWebappVersion()`, normaliza
+  strings opcionales, default `version: "dev-local"`.
+- `src/lib/server/application/use-cases/get-app-version.ts` —
+  `GetAppVersionUseCase`, con el mismo fallback a
+  `status: "unavailable"` si `migrationStatusPort.getSnapshot()` lanza
+  (DB no disponible no debe tumbar el endpoint de versión).
+- Route handler **público** (sin `requireSession()`, igual que el
+  original — la pantalla de login necesita poder leer la versión antes de
+  tener sesión): `/api/app/version` (GET).
+- `composition.ts` — `migrationStatusRepository` + `getAppVersionUseCase`
+  wireados, eager (no lazy singleton, igual que
+  `zlibraryMirrorSettingsRepository`).
+- Frontend: `use-app-version.ts` (hook que fetch-ea solo cuando el modal
+  está `open`, mismo patrón que `usePluginData`/`useZlibraryMirrors`) +
+  `src/lib/client/app-version-api.ts`. `settings-modal.tsx` ahora pasa
+  datos reales a `AppPane` en vez de `mockAppVersion`; `appEnvironment`
+  se resuelve con `process.env.NODE_ENV === "production" ? "Production" :
+  "Development"` (equivalente Next.js al booleano `dev` de
+  `$app/environment` que usaba el original). `mock-data.ts` perdió
+  `mockAppVersion` — solo queda `mockHardcoverStatus`.
+
+### Verificación
+`bun run build` limpio (23 rutas, incluye `/api/app/version`). `curl` al
+build de producción real (`bun run start`) confirmó 200 sin sesión con
+los datos reales de la DB local:
+`{"version":"dev-local",...,"database":{"status":"up_to_date","currentMigrationTag":"0025_zlibrary_mirror_settings",...}}`
+— coincide exactamente con la última migración aplicada en
+`.data/dev.db`. Nota operativa: la primera verificación pegó por error
+contra un servidor `dev` viejo que había quedado corriendo de una sesión
+anterior ocupando el puerto 3000 (`bun run start` falló con
+`EADDRINUSE` silenciosamente en background); se detectó porque el pane
+mostraba "Environment: Development" en vez de "Production", se mató el
+proceso viejo y se repitió la verificación contra el build real. Luego
+**Playwright end-to-end contra la UI real**: login, abrir Settings (pestaña
+App es la default), confirmar que Version/Database Version/Migration
+Status/Environment muestran los valores reales del servidor, captura de
+pantalla, **reload completo de página** y reapertura del modal para
+confirmar que se vuelve a pedir al servidor (no es estado cliente
+cacheado) — mismos valores, sin errores de consola en ningún punto.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
 > `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — **la Fase 2
-> está completa** (2a-2d) y **la Fase 3a, 3b, 3c y 3d** también (logger,
-> auth local, Shelves, Account, Devices, Plugin, y los mirrors de
-> Z-Library — todos end-to-end). Todo verificado con Playwright contra
-> datos reales (DB + S3 + GitHub) a través de la UI, sin errores de
-> consola. Notas importantes ya resueltas (secciones "Fase 3a-3d — Detalle
-> de lo hecho"): en Next 16 el archivo se llama `proxy.ts`, no
-> `middleware.ts` — de momento NO hay `proxy.ts`, la auth se resuelve
-> por-ruta vía `src/lib/server/auth/require-session.ts`;
+> está completa** (2a-2d) y **la Fase 3a-3e** también (logger, auth local,
+> Shelves, Account, Devices, Plugin, los mirrors de Z-Library, y el App
+> pane — todos end-to-end). Con esto **el Settings modal queda 100% real
+> salvo Hardcover** (bloqueado, ver abajo) **y el login real de
+> Z-Library** (mockeado a propósito, Fase 2d). Todo verificado con
+> Playwright contra datos reales (DB + S3 + GitHub) a través de la UI,
+> sin errores de consola. Notas importantes ya resueltas (secciones "Fase
+> 3a-3e — Detalle de lo hecho"): en Next 16 el archivo se llama
+> `proxy.ts`, no `middleware.ts` — de momento NO hay `proxy.ts`, la auth
+> se resuelve por-ruta vía `src/lib/server/auth/require-session.ts`;
 > `CreateDeviceApiKeyUseCase` sigue sin portar; hay un contenedor Docker
 > `sake-seaweedfs` (S3 local) que ya estaba corriendo de trabajo previo del
 > usuario (instrucciones para levantarlo en la sección de la Fase 3c); y
 > **Hardcover quedó completamente fuera** porque su servicio de sync real
 > depende de `BookRepository`/`Book`, que no existen hasta que se porte
-> library/books — no se intentó ni el status/toggle con un stub.
+> library/books — no se intentó ni el status/toggle con un stub. Nota
+> operativa de la Fase 3e: si vas a levantar el servidor para verificar,
+> revisa primero que no haya un `bun run dev`/`bun run start` viejo
+> colgado en el puerto 3000 de una sesión anterior (`netstat -ano | grep
+> ':3000'` en Git Bash) — si `bun run start` falla con `EADDRINUSE` en
+> background no siempre es obvio, y terminarás verificando contra código
+> viejo sin darte cuenta.
 >
-> Con esto, del Settings modal **solo queda sin conectar la pestaña App**
-> (versión de la app + estado de migración de DB) — parece chica y
-> autocontenida (no depende de books ni de clientes externos). Antes de
-> escribir código, lee
-> `sake/src/routes/api/app/version/+server.ts`, el
-> `GetAppVersionUseCase` y el `MigrationStatusRepository` que usa (visibles
-> en `sake/src/lib/server/application/composition/integrations.ts` y
-> `foundation.ts`), gauge su tamaño real, y confirma que de verdad es así
-> de chico antes de comprometerte — si lo es, ciérralo en una mini-fase
-> corta (3e) y con eso el Settings modal completo queda 100% real salvo
-> Hardcover (documentado como bloqueado) y el login real de Z-Library
-> (mockeado a propósito, Fase 2d).
->
-> Después de eso, el frontero grande que sigue es **library/books** — el
-> dominio que bloquea Hardcover, el lector, y probablemente buena parte de
-> lo que queda de Fase 3. Dado su tamaño (es la mayor parte de las ~19,645
+> El frontero grande que sigue es **library/books** — el dominio que
+> bloquea Hardcover, el lector, y probablemente buena parte de lo que
+> queda de Fase 3. Dado su tamaño (es la mayor parte de las ~19,645
 > líneas originales de `src/lib/server/`), esa merece su propia sesión de
 > scoping dedicada en vez de intentar encararla como parche de otra
-> mini-fase — no asumas que cabe junto con App ni con ninguna otra cosa.
-> Plantea el alcance de lo que sea que sigue antes de escribir nada, mismo
-> patrón que siempre.
+> mini-fase — no asumas que cabe junto con ninguna otra cosa. Plantea el
+> alcance de lo que sea que sigue antes de escribir nada, mismo patrón que
+> siempre.

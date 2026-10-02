@@ -11,10 +11,11 @@ import { AccountPane } from "./account-pane";
 import { DevicesPane } from "./devices-pane";
 import { notImplemented } from "./not-implemented";
 import { useAccountData } from "./use-account-data";
+import { useAppVersion } from "./use-app-version";
 import { useDevicesData } from "./use-devices-data";
 import { usePluginData } from "./use-plugin-data";
 import { useZlibraryMirrors } from "./use-zlibrary-mirrors";
-import { mockAppVersion, mockHardcoverStatus } from "./mock-data";
+import { mockHardcoverStatus } from "./mock-data";
 
 const SECTIONS = [
   { id: "app", label: "App", Icon: AppWindow },
@@ -44,6 +45,7 @@ interface SettingsModalProps {
 
 export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin, onSessionEnded }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<SectionId>("app");
+  const appVersion = useAppVersion(open);
   const account = useAccountData({ enabled: open, onSessionEnded });
   const devices = useDevicesData(open);
   const plugin = usePluginData(open);
@@ -76,10 +78,11 @@ export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin, onSessi
           <div className="flex-1 overflow-y-auto p-5">
             <TabsContent value="app">
               <AppPane
-                appVersion={mockAppVersion.version}
-                databaseVersion={mockAppVersion.database}
-                appVersionError={null}
-                appEnvironment="Development"
+                appVersion={appVersion.appVersionInfo?.version ?? "dev-local"}
+                databaseVersion={appVersion.appVersionInfo?.database ?? null}
+                appVersionError={appVersion.appVersionError}
+                isLoadingAppVersion={appVersion.isLoadingAppVersion}
+                appEnvironment={process.env.NODE_ENV === "production" ? "Production" : "Development"}
                 appSourceUrl={APP_SOURCE_URL}
                 appSourceLabel={APP_SOURCE_URL}
               />

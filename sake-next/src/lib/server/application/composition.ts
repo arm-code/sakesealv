@@ -1,6 +1,7 @@
-// Composition root — Fase 3a+3b+3c: auth local, shelves, Account/Devices
-// (API keys, logout-all, basic auth password, devices), y ahora el Plugin
-// pane (releases/latest/download/upstream-version) están wireados.
+// Composition root — Fase 3a+3b+3c+3d+3e: auth local, shelves, Account/Devices
+// (API keys, logout-all, basic auth password, devices), el Plugin pane
+// (releases/latest/download/upstream-version), los mirrors de Z-Library y
+// ahora el App pane (versión + estado de migraciones) están wireados.
 // Cuando se migren más features, extender este archivo (igual que el original
 // `composition.ts` barrel, pero sin arrastrar subsistemas que aún no existen
 // en sake-next: library/books, zlibrary, metadata providers, annotations...).
@@ -15,6 +16,7 @@ import { PluginReleaseRepository } from "@/lib/server/infrastructure/repositorie
 import { S3Storage } from "@/lib/server/infrastructure/storage/s3-storage";
 import { KoreaderPluginArtifactService } from "@/lib/server/application/services/koreader-plugin-artifact-service";
 import { ZLibraryMirrorSettingsRepository } from "@/lib/server/infrastructure/repositories/zlibrary-mirror-settings-repository";
+import { MigrationStatusRepository } from "@/lib/server/infrastructure/repositories/migration-status-repository";
 import { createLazySingleton } from "@/lib/server/utils/createLazySingleton";
 import { resolveZLibraryMirrorUrls } from "@/lib/server/config/zlibrary";
 
@@ -43,6 +45,7 @@ import { ListKoreaderPluginReleasesUseCase } from "@/lib/server/application/use-
 import { GetKoreaderPluginUpstreamVersionUseCase } from "@/lib/server/application/use-cases/get-koreader-plugin-upstream-version";
 import { GetKoreaderPluginDownloadUseCase } from "@/lib/server/application/use-cases/get-koreader-plugin-download";
 import { GetZLibraryMirrorSettingsUseCase, UpdateZLibraryMirrorSettingsUseCase } from "@/lib/server/application/use-cases/zlibrary-mirror-settings";
+import { GetAppVersionUseCase } from "@/lib/server/application/use-cases/get-app-version";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -57,6 +60,7 @@ export const koreaderPluginArtifactService = new KoreaderPluginArtifactService()
 export const zlibraryMirrorSettingsRepository = new ZLibraryMirrorSettingsRepository(
   resolveZLibraryMirrorUrls(process.env.ZLIBRARY_BASE_URL),
 );
+export const migrationStatusRepository = new MigrationStatusRepository();
 
 export const resolveRequestAuthUseCase = new ResolveRequestAuthUseCase(userRepository, userSessionRepository, userApiKeyRepository);
 export const getAuthStatusUseCase = new GetAuthStatusUseCase(userRepository);
@@ -96,3 +100,5 @@ export const getKoreaderPluginDownloadUseCase = new GetKoreaderPluginDownloadUse
 
 export const getZLibraryMirrorSettingsUseCase = new GetZLibraryMirrorSettingsUseCase(zlibraryMirrorSettingsRepository);
 export const updateZLibraryMirrorSettingsUseCase = new UpdateZLibraryMirrorSettingsUseCase(zlibraryMirrorSettingsRepository);
+
+export const getAppVersionUseCase = new GetAppVersionUseCase(migrationStatusRepository);
