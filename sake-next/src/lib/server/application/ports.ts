@@ -52,21 +52,25 @@ export interface ShelfRepositoryPort {
 }
 
 // Recortado a lo que usan ListLibraryUseCase/GetLibraryBookDetailUseCase/
-// GetLibraryBookContentUseCase/SetBookShelvesUseCase (Fase 3f — núcleo) y,
-// desde 3g, ProgressBookResolver/GetProgressUseCase/UpdateBookRatingUseCase/
-// ListLibraryRatingsUseCase/UpdateLibraryBookStateUseCase (getByStorageKey,
-// updateProgress, updateRating, updateState). El resto del original
-// (getAllForStats, getByIdIncludingTrashed, getByZLibId*,
-// getByStorageKeyIncludingTrashed, getByTitle*, hasOtherBookWithStorageKey,
-// listStorageKeysWithExternalReferences, create, updateMetadata,
-// updateHardcoverId, delete, resetDownloadStatus, touchProgressUpdatedAt,
-// getNotDownloadedByDevice, getBooksWithNewProgressForDevice, getTrashed,
-// moveToTrash, restoreFromTrash, getExpiredTrash, count) pertenece a
-// mini-fases futuras (papelera, adquisición, dispositivos).
+// GetLibraryBookContentUseCase/SetBookShelvesUseCase (Fase 3f — núcleo),
+// ProgressBookResolver/GetProgressUseCase/UpdateBookRatingUseCase/
+// ListLibraryRatingsUseCase/UpdateLibraryBookStateUseCase (Fase 3g), y desde
+// 3h los 4 use-cases de papelera + PurgeExpiredTrashUseCase (getTrashed,
+// moveToTrash, restoreFromTrash, getByIdIncludingTrashed,
+// hasOtherBookWithStorageKey, listStorageKeysWithExternalReferences,
+// getExpiredTrash, delete). El resto del original (getAllForStats,
+// getByZLibId*, getByStorageKeyIncludingTrashed, getByTitle*, create,
+// updateMetadata, updateHardcoverId, resetDownloadStatus,
+// touchProgressUpdatedAt, getNotDownloadedByDevice,
+// getBooksWithNewProgressForDevice, count) pertenece a mini-fases futuras
+// (adquisición, dispositivos, estadísticas).
 export interface BookRepositoryPort {
   getAll(): Promise<Book[]>;
   getById(id: number): Promise<Book | undefined>;
+  getByIdIncludingTrashed(id: number): Promise<Book | undefined>;
   getByStorageKey(storageKey: string): Promise<Book | undefined>;
+  hasOtherBookWithStorageKey(storageKey: string, excludeBookId: number): Promise<boolean>;
+  listStorageKeysWithExternalReferences(storageKeys: string[], excludeBookIds: number[]): Promise<string[]>;
   updateProgress(bookId: number, progressKey: string, progressPercent: number | null, progressUpdatedAt?: string | null): Promise<void>;
   updateRating(bookId: number, rating: number | null): Promise<void>;
   updateState(
@@ -79,6 +83,11 @@ export interface BookRepositoryPort {
       excludeFromNewBooks?: boolean;
     },
   ): Promise<void>;
+  getTrashed(): Promise<Book[]>;
+  moveToTrash(id: number, deletedAt: string, trashExpiresAt: string): Promise<void>;
+  restoreFromTrash(id: number): Promise<void>;
+  getExpiredTrash(nowIso: string): Promise<Book[]>;
+  delete(id: number): Promise<void>;
 }
 
 export interface CreateBookProgressHistorySnapshot {

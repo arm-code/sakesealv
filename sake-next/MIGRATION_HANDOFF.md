@@ -30,7 +30,8 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3e — App pane (versión + estado de migración de DB) end-to-end. Con esto el Settings modal queda 100% real salvo Hardcover (bloqueado) y el login real de Z-Library (mockeado a propósito).
    - ✅ 3f — library/books: **núcleo** (listar/ver detalle/leer EPUB/portada/asignar a estantes), verificado backend-only (sin UI todavía, `/library` sigue siendo el placeholder de Fase 4).
    - ✅ 3g — library/books: **progreso/rating** (ratings, historial de progreso, rating, isRead/archived/excludeFromNewBooks, autosave del lector web), verificado backend-only. El sync de progreso de dispositivos KOReader (`PutProgress`/`GetProgress`) quedó **fuera a propósito** — ver sección "Fase 3g" para el motivo (auth dual sesión/API key, ligada al device-pairing todavía sin portar).
-   - ⬜ 3h+ — resto de library/books (sesión de scoping propia hizo el troceo, ver sección "Fase 3f"): papelera, portadas (upload/import), metadata providers (otra sub-fase de scoping aparte), adquisición Z-Library real (search/download/login), sync de progreso de dispositivos KOReader (ligado a device-pairing). Después de eso: OPDS, DAV, annotations, queue, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
+   - ✅ 3h — library/books: **papelera** (listar/mover a la papelera/restaurar/borrar permanente + purga de expirados), verificado backend-only, incluyendo limpieza real de S3 (archivo principal, progreso, portadas). `PurgeExpiredTrashUseCase` quedó wireado en `composition.ts` pero **sin ruta ni cron** — ver sección "Fase 3h" para el motivo (mismo hueco de arquitectura que el sync del plugin/Hardcover).
+   - ⬜ 3i+ — resto de library/books (sesión de scoping propia hizo el troceo, ver sección "Fase 3f"): portadas (upload/import), metadata providers (otra sub-fase de scoping aparte), adquisición Z-Library real (search/download/login), sync de progreso de dispositivos KOReader (ligado a device-pairing). Después de eso: OPDS, DAV, annotations, queue, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
 ---
@@ -1058,44 +1059,128 @@ sigue sin existir superficie de biblioteca real hasta la Fase 4.
 
 ---
 
+## Fase 3h — Detalle de lo hecho (COMPLETA)
+
+**Scoping confirmado antes de escribir código: alcance chico, sin
+bifurcaciones como la de 3g.** Los 5 candidatos (`ListLibraryTrash`,
+`MoveLibraryBookToTrash`, `RestoreLibraryBook`, `DeleteTrashedLibraryBook`,
+`PurgeExpiredTrashUseCase`) suman 213 líneas en el original, todos sobre
+`BookRepositoryPort` sin clientes externos. La única pieza con una
+decisión real fue `PurgeExpiredTrashUseCase`: no tiene ruta HTTP en el
+original — se dispara desde `hooks.server.ts` en cada request si ya pasó
+el intervalo de purga (`triggerTrashPurgeIfDue`). Es el mismo hueco de
+arquitectura ya documentado en 3a/3c ("cómo arrancan los jobs de fondo en
+el self-hosted de Next.js", sin resolver todavía). Se portó igual (es
+chica y comparte dependencias con `DeleteTrashedLibraryBook`), pero se
+dejó **wireada en `composition.ts` sin ruta ni cron**, lista para
+invocarse cuando se resuelva esa decisión.
+
+### `ManagedBookCoverService.deleteForBookStorageKey`: función suelta, no la clase
+`DeleteTrashedLibraryBookUseCase`/`PurgeExpiredTrashUseCase` necesitan
+borrar las portadas gestionadas de un libro al eliminarlo permanentemente.
+El método real (`deleteForBookStorageKey`, en el `ManagedBookCoverService`
+de 801 líneas del original) solo usa `storage.list`/`storage.delete` +
+`buildManagedBookCoverPrefix` — nada del resto de la clase (fetch +
+resolución de mirrors de Z-Library, eso es la mini-fase de portadas
+upload/import). Se extrajo como función suelta
+(`deleteManagedBookCoversForStorageKey(storage, bookStorageKey)`) en el
+mismo archivo que ya tenía los 2 helpers puros de 3f
+(`src/lib/server/application/services/managed-book-cover.ts`), en vez de
+instanciar una clase que arrastraría dependencias que no se necesitan.
+
+### Archivos creados
+- 5 use-cases: `list-library-trash.ts`, `move-library-book-to-trash.ts`,
+  `restore-library-book.ts`, `delete-trashed-library-book.ts`,
+  `purge-expired-trash.ts` (sin ruta, ver arriba).
+- `managed-book-cover.ts` ganó `buildManagedBookCoverPrefix` y
+  `deleteManagedBookCoversForStorageKey`.
+- `ports.ts` — `BookRepositoryPort` ganó `getByIdIncludingTrashed`,
+  `hasOtherBookWithStorageKey`, `listStorageKeysWithExternalReferences`,
+  `getTrashed`, `moveToTrash`, `restoreFromTrash`, `getExpiredTrash`,
+  `delete`.
+- `book-repository.ts` ganó esos 8 métodos (Drizzle directo, sin
+  sorpresas — mismas queries que el original).
+- 3 rutas: `/api/library/trash` (GET), `/api/library/[id]/restore`
+  (POST), `/api/library/[id]/trash` (POST mover a papelera, DELETE borrar
+  permanente) — las 3 con `requireSession()`.
+- `composition.ts` — los 5 use-cases wireados (reutilizando
+  `bookRepository`/`storage` ya existentes).
+
+### Verificación
+`bun run build` limpio (36 rutas API en total). Backend-only, mismo
+patrón que 3f/3g: puerto 3000 verificado libre, `sake-seaweedfs`
+reutilizado. Dos scripts desechables (`_seed-session-3h.ts` y
+`_test-purge-3h.ts`, ambos borrados antes de terminar la sesión) — el
+primero creó una sesión real y un libro de prueba nuevo (id 2, para no
+tocar el libro de la Fase 3f reusado entre fases); el segundo insertó un
+tercer libro ya con `trashExpiresAt` vencido y objetos reales en S3
+(archivo principal + portada) para ejercer `PurgeExpiredTrashUseCase`
+directamente (sin ruta). Contra el build de producción real (`bun run
+start`) con `curl` y con los scripts:
+- `GET /api/library/trash` sin sesión → 401; con sesión → lista vacía.
+- `POST /api/library/:id/restore` sobre libro no trasheado → 400;
+  id inexistente → 404; id inválido → 400.
+- `DELETE /api/library/:id/trash` sobre libro no trasheado → 400.
+- `POST /api/library/:id/trash` → mueve a papelera, `trashExpiresAt` a 30
+  días; `GET /api/library/trash` lo refleja; `GET /api/library/list` deja
+  de mostrarlo (confirma el filtro `isNull(deletedAt)`).
+- `POST /api/library/:id/restore` → vuelve a aparecer en `list`,
+  desaparece de `trash`.
+- Ciclo completo: trashear de nuevo → `DELETE /api/library/:id/trash` →
+  borrado permanente real; `GET /api/library/:id/detail` → 404;
+  `POST .../restore` sobre el mismo id ahora → 404 (no 400, confirma que
+  la fila ya no existe en absoluto, no solo que no está en papelera).
+- `PurgeExpiredTrashUseCase.execute()` invocado directamente: antes de
+  purgar, `storage.list` confirmó 1 objeto real subido para el archivo
+  principal y 1 para la portada; después de purgar, ambos listados
+  devuelven 0 (borrado real en SeaweedFS, no solo en DB) y el libro ya no
+  existe ni con `getByIdIncludingTrashed`.
+
+No se tocó `/library` ni se montó ninguna UI — mismo criterio que
+fases anteriores de library/books.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
 > `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — **la Fase 2
-> está completa** (2a-2d) y **la Fase 3a-3g** también (logger, auth local,
+> está completa** (2a-2d) y **la Fase 3a-3h** también (logger, auth local,
 > Shelves, Account, Devices, Plugin, los mirrors de Z-Library, el App pane,
 > el **núcleo** de library/books — listar/ver detalle/leer EPUB/portada/
-> asignar a estantes —, y ahora **progreso/rating** — ratings, historial de
+> asignar a estantes —, **progreso/rating** — ratings, historial de
 > progreso, rating, isRead/archived/excludeFromNewBooks, autosave del
-> lector web). Con el App pane, el Settings modal quedó 100% real salvo
-> Hardcover (bloqueado, ver abajo) y el login real de Z-Library (mockeado a
-> propósito, Fase 2d). Notas importantes ya resueltas (secciones "Fase
-> 3a-3g — Detalle de lo hecho"): en Next 16 el archivo se llama `proxy.ts`,
-> no `middleware.ts` — de momento NO hay `proxy.ts`, la auth se resuelve
-> por-ruta vía `src/lib/server/auth/require-session.ts` (solo sesión por
-> cookie — **no** soporta API key de dispositivo, ver nota de 3g abajo);
-> `CreateDeviceApiKeyUseCase` sigue sin portar; hay un contenedor Docker
-> `sake-seaweedfs` (S3 local) que ya estaba corriendo de trabajo previo del
-> usuario (instrucciones para levantarlo en la sección de la Fase 3c); y
-> **Hardcover sigue bloqueado** — su servicio de sync real necesita más que
-> solo `getAll`/`getById`/progreso/rating de `BookRepository` (el resto del
-> dominio library/books todavía no existe). Nota operativa (ya pasó varias
-> veces): si vas a levantar el servidor para verificar, revisa primero que
-> no haya un `bun run dev`/`bun run start` viejo colgado en el puerto 3000
-> de una sesión anterior (`netstat -ano | grep ':3000'` en Git Bash) — si
-> `bun run start` falla con `EADDRINUSE` en background no siempre es obvio,
-> y terminarás verificando contra código viejo sin darte cuenta.
+> lector web —, y ahora **papelera** — listar/mover/restaurar/borrar
+> permanente + purga de expirados). Con el App pane, el Settings modal
+> quedó 100% real salvo Hardcover (bloqueado, ver abajo) y el login real de
+> Z-Library (mockeado a propósito, Fase 2d). Notas importantes ya resueltas
+> (secciones "Fase 3a-3h — Detalle de lo hecho"): en Next 16 el archivo se
+> llama `proxy.ts`, no `middleware.ts` — de momento NO hay `proxy.ts`, la
+> auth se resuelve por-ruta vía `src/lib/server/auth/require-session.ts`
+> (solo sesión por cookie — **no** soporta API key de dispositivo, ver nota
+> de 3g abajo); `CreateDeviceApiKeyUseCase` sigue sin portar; hay un
+> contenedor Docker `sake-seaweedfs` (S3 local) que ya estaba corriendo de
+> trabajo previo del usuario (instrucciones para levantarlo en la sección
+> de la Fase 3c); y **Hardcover sigue bloqueado** — su servicio de sync
+> real necesita más que solo progreso/rating/papelera de `BookRepository`
+> (el resto del dominio library/books todavía no existe). Nota operativa
+> (ya pasó varias veces): si vas a levantar el servidor para verificar,
+> revisa primero que no haya un `bun run dev`/`bun run start` viejo colgado
+> en el puerto 3000 de una sesión anterior (`netstat -ano | grep ':3000'`
+> en Git Bash) — si `bun run start` falla con `EADDRINUSE` en background no
+> siempre es obvio, y terminarás verificando contra código viejo sin darte
+> cuenta.
 >
 > **La Fase 3f fue una sesión de scoping dedicada para library/books**
 > (dominio completo: ~8,600 líneas si se tomara junto — se trozó en
 > mini-fases por dependencia). Lee la sección "Fase 3f — Detalle de lo
 > hecho" para el troceo completo. El orden original propuesto era 3f núcleo
-> (hecho) → 3g progreso/rating (hecho, ver abajo) → 3h papelera → 3i
-> portadas (upload/import) → 3j+ metadata providers (otra sub-fase de
-> scoping, 3,346 líneas aparte) → adquisición Z-Library real (ligada al
-> login real ya diferido a Fase 4).
+> (hecho) → 3g progreso/rating (hecho) → 3h papelera (hecho, ver abajo) →
+> **3i portadas** (upload/import, siguiente candidato natural) → 3j+
+> metadata providers (otra sub-fase de scoping, 3,346 líneas aparte) →
+> adquisición Z-Library real (ligada al login real ya diferido a Fase 4).
 >
 > **La Fase 3g dejó algo fuera a propósito — importante para lo que sigue:**
 > al leer el código real, `PutProgress`/`GetProgress` (el sync de progreso
@@ -1116,14 +1201,27 @@ Pega esto al iniciar:
 > antes de tocar nada relacionado — esa librería Lua también la va a
 > necesitar la futura mini-fase de sync de dispositivos.
 >
-> Para lo que sigas ahora (candidato natural: **3h papelera**, o la mini-fase
-> de sync de dispositivos KOReader si prefieres cerrar ese hueco antes):
-> **no asumas que cabe igual de chico que se ve** — igual que siempre, lee
-> el código real primero y confirma el tamaño antes de comprometerte.
-> También sigue vigente la decisión de metodología: sin UI de biblioteca
-> real todavía (`/library` es el placeholder de Fase 4), verificar cada
-> mini-fase de library/books por build + curl + inspección directa de
-> DB/S3 (scripts desechables para sembrar datos, borrados antes de
-> terminar la sesión), no por Playwright-contra-UI — eso vuelve cuando la
-> Fase 4 construya la página real. Plantea el alcance de lo que sea que
-> sigue antes de escribir nada, mismo patrón que siempre.
+> **La Fase 3h fue chica y sin bifurcaciones**, salvo una pieza:
+> `PurgeExpiredTrashUseCase` no tiene ruta HTTP en el original — se dispara
+> desde `hooks.server.ts` por intervalo en cada request, el mismo hueco de
+> "cómo arrancan jobs de fondo en self-hosted Next.js" sin resolver desde
+> 3a/3c (sync del plugin/Hardcover). Se portó y quedó **wireado en
+> `composition.ts` sin ruta ni cron** — si retomas esa decisión de
+> arquitectura de jobs de fondo, ya hay 3 use-cases esperando ese mecanismo
+> (plugin sync, Hardcover, trash purge). Lee la sección "Fase 3h — Detalle
+> de lo hecho" para el resto (incluye una función suelta
+> `deleteManagedBookCoversForStorageKey` extraída del
+> `ManagedBookCoverService` original, útil también para 3i portadas).
+>
+> Para lo que sigas ahora (candidato natural: **3i portadas upload/import**,
+> o la mini-fase de sync de dispositivos KOReader / la decisión de jobs de
+> fondo si prefieres cerrar esos huecos antes): **no asumas que cabe igual
+> de chico que se ve** — igual que siempre, lee el código real primero y
+> confirma el tamaño antes de comprometerte. También sigue vigente la
+> decisión de metodología: sin UI de biblioteca real todavía (`/library` es
+> el placeholder de Fase 4), verificar cada mini-fase de library/books por
+> build + curl + inspección directa de DB/S3 (scripts desechables para
+> sembrar datos, borrados antes de terminar la sesión), no por
+> Playwright-contra-UI — eso vuelve cuando la Fase 4 construya la página
+> real. Plantea el alcance de lo que sea que sigue antes de escribir nada,
+> mismo patrón que siempre.

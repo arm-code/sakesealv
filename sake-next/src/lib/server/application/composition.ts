@@ -1,16 +1,20 @@
-// Composition root — Fase 3a+3b+3c+3d+3e+3f+3g: auth local, shelves, Account/
-// Devices (API keys, logout-all, basic auth password, devices), el Plugin
-// pane, los mirrors de Z-Library, el App pane, el núcleo de library/books
-// (listar/ver detalle/leer EPUB/portada/asignar a estantes), y ahora
-// progreso/rating (ratings, progress-history, rating, state, autosave del
-// lector web) están wireados. El sync de progreso de dispositivos KOReader
-// (PutProgress/GetProgress) queda fuera de 3g a propósito — necesita un
-// mecanismo de auth dual (sesión o API key de dispositivo) ligado al
-// device-pairing todavía sin portar (CreateDeviceApiKeyUseCase). Cuando se
-// migren más features, extender este archivo (igual que el original
-// `composition.ts` barrel, pero sin arrastrar subsistemas que aún no
-// existen en sake-next: papelera, portadas upload/import, metadata
-// providers, adquisición Z-Library, annotations, sync de dispositivos...).
+// Composition root — Fase 3a..3h: auth local, shelves, Account/Devices (API
+// keys, logout-all, basic auth password, devices), el Plugin pane, los
+// mirrors de Z-Library, el App pane, el núcleo de library/books (listar/ver
+// detalle/leer EPUB/portada/asignar a estantes), progreso/rating (ratings,
+// progress-history, rating, state, autosave del lector web), y ahora
+// papelera (listar/mover/restaurar/borrar permanente + purga de expirados)
+// están wireados. El sync de progreso de dispositivos KOReader
+// (PutProgress/GetProgress) sigue fuera a propósito — necesita un mecanismo
+// de auth dual (sesión o API key de dispositivo) ligado al device-pairing
+// todavía sin portar (CreateDeviceApiKeyUseCase). `purgeExpiredTrashUseCase`
+// está wireado pero sin ruta ni cron — en el original se dispara desde
+// hooks.server.ts por intervalo, mismo hueco de arquitectura que el sync
+// del plugin (3c)/Hardcover. Cuando se migren más features, extender este
+// archivo (igual que el original `composition.ts` barrel, pero sin
+// arrastrar subsistemas que aún no existen en sake-next: portadas
+// upload/import, metadata providers, adquisición Z-Library, annotations,
+// sync de dispositivos...).
 import { UserRepository } from "@/lib/server/infrastructure/repositories/user-repository";
 import { UserSessionRepository } from "@/lib/server/infrastructure/repositories/user-session-repository";
 import { UserApiKeyRepository } from "@/lib/server/infrastructure/repositories/user-api-key-repository";
@@ -67,6 +71,11 @@ import { GetBookProgressHistoryUseCase } from "@/lib/server/application/use-case
 import { UpdateBookRatingUseCase } from "@/lib/server/application/use-cases/update-book-rating";
 import { UpdateLibraryBookStateUseCase } from "@/lib/server/application/use-cases/update-library-book-state";
 import { PutWebReaderProgressUseCase } from "@/lib/server/application/use-cases/put-web-reader-progress";
+import { ListLibraryTrashUseCase } from "@/lib/server/application/use-cases/list-library-trash";
+import { MoveLibraryBookToTrashUseCase } from "@/lib/server/application/use-cases/move-library-book-to-trash";
+import { RestoreLibraryBookUseCase } from "@/lib/server/application/use-cases/restore-library-book";
+import { DeleteTrashedLibraryBookUseCase } from "@/lib/server/application/use-cases/delete-trashed-library-book";
+import { PurgeExpiredTrashUseCase } from "@/lib/server/application/use-cases/purge-expired-trash";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -141,3 +150,9 @@ export const updateLibraryBookStateUseCase = new UpdateLibraryBookStateUseCase(b
 const progressBookResolver = new ProgressBookResolver(bookRepository);
 const progressPersistenceService = new ProgressPersistenceService(bookRepository, bookProgressHistoryRepository, storage, deviceProgressDownloadRepository);
 export const putWebReaderProgressUseCase = new PutWebReaderProgressUseCase(progressBookResolver, storage, progressPersistenceService, sidecarWriteCoordinator);
+
+export const listLibraryTrashUseCase = new ListLibraryTrashUseCase(bookRepository);
+export const moveLibraryBookToTrashUseCase = new MoveLibraryBookToTrashUseCase(bookRepository);
+export const restoreLibraryBookUseCase = new RestoreLibraryBookUseCase(bookRepository);
+export const deleteTrashedLibraryBookUseCase = new DeleteTrashedLibraryBookUseCase(bookRepository, storage);
+export const purgeExpiredTrashUseCase = new PurgeExpiredTrashUseCase(bookRepository, storage);
