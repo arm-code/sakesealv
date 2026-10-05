@@ -29,7 +29,8 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3d — Z-Library mirrors (Integrations pane, mitad) end-to-end.
    - ✅ 3e — App pane (versión + estado de migración de DB) end-to-end. Con esto el Settings modal queda 100% real salvo Hardcover (bloqueado) y el login real de Z-Library (mockeado a propósito).
    - ✅ 3f — library/books: **núcleo** (listar/ver detalle/leer EPUB/portada/asignar a estantes), verificado backend-only (sin UI todavía, `/library` sigue siendo el placeholder de Fase 4).
-   - ⬜ 3g+ — resto de library/books (sesión de scoping propia hizo el troceo, ver sección "Fase 3f"): progreso/rating, papelera, portadas (upload/import), metadata providers (otra sub-fase de scoping aparte), adquisición Z-Library real (search/download/login). Después de eso: OPDS, DAV, annotations, queue, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
+   - ✅ 3g — library/books: **progreso/rating** (ratings, historial de progreso, rating, isRead/archived/excludeFromNewBooks, autosave del lector web), verificado backend-only. El sync de progreso de dispositivos KOReader (`PutProgress`/`GetProgress`) quedó **fuera a propósito** — ver sección "Fase 3g" para el motivo (auth dual sesión/API key, ligada al device-pairing todavía sin portar).
+   - ⬜ 3h+ — resto de library/books (sesión de scoping propia hizo el troceo, ver sección "Fase 3f"): papelera, portadas (upload/import), metadata providers (otra sub-fase de scoping aparte), adquisición Z-Library real (search/download/login), sync de progreso de dispositivos KOReader (ligado a device-pairing). Después de eso: OPDS, DAV, annotations, queue, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
 ---
@@ -906,49 +907,223 @@ iniciar esta fase.
 
 ---
 
+## Fase 3g — Detalle de lo hecho (COMPLETA)
+
+**Scoping confirmado antes de escribir código, con un corte explícito
+acordado con el usuario.** Los 7 candidatos originales (`PutProgress`,
+`GetProgress`, `PutWebReaderProgress`, `GetBookProgressHistory`,
+`UpdateBookRating`, `ListLibraryRatings`, `UpdateLibraryBookState`) se
+dividen en dos grupos con requisitos de auth completamente distintos:
+
+- **4 piezas simples** (`ListLibraryRatings`, `GetBookProgressHistory`,
+  `UpdateBookRating`, `UpdateLibraryBookState`): auth por sesión estándar
+  (`requireSession()`), mismo patrón que toda la Fase 3. `ListLibraryRatings`
+  resultó ser **pública** en el original (`isPublicApiRoute` permite GET sin
+  sesión) — se portó igual, sin `requireSession()`.
+- **`PutWebReaderProgress`** (autosave del lector web EPUB): también
+  session-only, pero arrastra su propio subsistema (ver abajo).
+- **`PutProgress`/`GetProgress`** (sync real de dispositivos KOReader, el
+  endpoint que usa el plugin del e-reader): al leer la ruta original
+  (`/api/library/progress`), se descubrió que acepta auth **por sesión O por
+  API key de dispositivo** (`resolveAuthorizedDeviceId` lee
+  `locals.auth.type === 'api_key'`, poblado centralmente por el
+  `hooks.server.ts` original). El `requireSession()` de `sake-next`
+  **rechaza explícitamente** actors que no sean `session` — no sirve tal
+  cual para esta ruta. Soportarla de verdad requiere un helper de auth
+  nuevo (dual: sesión o API key), y la emisión real de esas API keys de
+  dispositivo (`CreateDeviceApiKeyUseCase`) sigue sin portar desde la Fase
+  3b. **Decisión tomada con el usuario: `PutProgress`/`GetProgress` quedan
+  fuera de 3g**, diferidas a cuando se retome el device-pairing completo
+  (mismo bloqueador). El resto de 3g (session-only) se portó entero.
+
+### Descubrimiento de tamaño real: la librería Lua de KOReader
+`PutWebReaderProgressUseCase` depende de `mergeKoreaderSidecar`/
+`parseKoreaderSidecar` (`koreaderSidecar.ts`, 274 líneas), que a su vez
+depende de un parser/serializador de tablas Lua completo escrito a mano
+(`luaData.ts` 183 + `luaValue.ts` 163 líneas, usa el paquete npm
+`luaparse` — **nueva dependencia**, no estaba en `sake-next`, igual que
+`jszip` en 3c). Es decir: portar una sola ruta de autosave arrastró
+**620 líneas de infraestructura de parsing del formato `.sdr` de
+KOReader** (el metadata sidecar que lee/escribe el dispositivo físico),
+no solo las ~100 líneas del use-case en sí. Se portó **verbatim, sin
+recortar** — es lógica pura (sin dependencias de SvelteKit), y la
+necesitará también la futura mini-fase de sync de dispositivos KOReader
+que comparte el mismo formato de archivo.
+
+**Único cambio real de framework** (no de lógica): dos literales BigInt
+(`0xcbf29ce484222325n`) en `createAnnotationVersion` no compilan con el
+`target: "ES2017"` de `tsconfig.json` de `sake-next` (BigInt literals
+necesitan ES2020+). Se reescribieron como `BigInt("0x...")` — mismo
+resultado en runtime, sin tocar el `target` del proyecto completo por una
+función que ni siquiera usa ningún use-case portado todavía
+(`createAnnotationVersion`/`createAnnotationId` son del futuro sistema de
+annotations, no de progreso).
+
+### `ProgressPersistenceService`: recortado de dependencias opcionales, no de forma
+El servicio compartido que persiste cualquier actualización de progreso
+(`ProgressPersistenceService`, 153 líneas) normalmente acepta
+`HardcoverProgressSyncPort` y `AnnotationIndexService` como parámetros
+**opcionales** en el constructor. Ninguno de los dos existe en
+`sake-next` (Hardcover sigue bloqueado desde 3d/3f; annotations ni se ha
+scopeado). Se portó **sin esos dos parámetros** (no como `undefined`
+explícito, directamente fuera de la firma) — se reintroducen cuando se
+porten esos subsistemas. El resto de la lógica (upload a S3, actualizar
+`BookRepository`, snapshot de historial con guard de tabla-no-existe,
+marcar confirmación de dispositivo) se portó tal cual.
+
+`DeviceProgressDownloadRepositoryPort` ganó `upsertByDeviceAndBook`
+(antes recortado a solo `deleteByDeviceId` en 3b) — en la práctica **no
+se ejerce en 3g** (`PutWebReaderProgress` nunca pasa `deviceId`), pero se
+portó completo en vez de dejarlo a medias porque `ProgressPersistenceService`
+es el mismo servicio que usará el futuro sync de dispositivos KOReader.
+
+### Archivos creados
+- `src/lib/koreader/lua-value.ts`, `lua-data.ts`, `koreader-sidecar.ts` —
+  parser/serializador Lua + formato de sidecar KOReader, verbatim (ver
+  arriba).
+- `src/lib/server/domain/value-objects/progress-file.ts` — descriptor de
+  archivo de progreso (`buildProgressFileDescriptor`,
+  `buildProgressLookupTitleCandidates`), verbatim, sin dependencias.
+- `src/lib/server/domain/book-progress-history.ts` — entidad
+  `BookProgressHistory`.
+- `src/lib/server/infrastructure/repositories/book-progress-history-repository.ts`
+  — `appendSnapshot`/`upsertReaderSessionSnapshot`/`getByBookId`, verbatim
+  (usa los `UNIQUE` de `(bookId, recordedAt)` y `(bookId, readerSessionId)`
+  que ya traía el schema desde la Fase 1).
+- `src/lib/server/application/services/progress-book-resolver.ts`,
+  `progress-persistence-service.ts` (ver recorte arriba),
+  `sidecar-write-coordinator.ts` — puertos de los 3 servicios de soporte.
+- 5 use-cases: `list-library-ratings.ts`, `get-book-progress-history.ts`,
+  `update-book-rating.ts`, `update-library-book-state.ts` (sin
+  `HardcoverProgressSyncPort`, mismo motivo que `ProgressPersistenceService`),
+  `put-web-reader-progress.ts`.
+- `src/lib/server/http/web-reader-progress-request.ts` — parser/validador
+  del body JSON del autosave, verbatim.
+- `ports.ts` — `BookRepositoryPort` ganó `getByStorageKey`/
+  `updateProgress`/`updateRating`/`updateState`; nuevo
+  `BookProgressHistoryRepositoryPort`; `DeviceProgressDownloadRepositoryPort`
+  ganó `upsertByDeviceAndBook`.
+- `book-repository.ts` ganó esos 4 métodos (rutas Drizzle directas, sin
+  sorpresas) + un `repoLogger` que antes no tenía (solo tenía lecturas).
+- `device-progress-download-repository.ts` ganó `upsertByDeviceAndBook`.
+- 5 rutas: `/api/library/ratings` (GET, **pública**), `/api/library/[id]/
+  progress-history` (GET), `/api/library/[id]/rating` (PUT), `/api/library/
+  [id]/state` (PUT), `/api/library/progress/web` (PUT) — las 4 últimas con
+  `requireSession()`.
+- `composition.ts` — nuevo `bookProgressHistoryRepository`,
+  `sidecarWriteCoordinator`, `progressBookResolver` y
+  `progressPersistenceService` (estos dos últimos no exportados, solo
+  usados para construir `putWebReaderProgressUseCase`) + los 5 use-cases.
+- Nueva dependencia: `luaparse` + `@types/luaparse` (instalado con
+  `bun add`).
+
+### Verificación
+`bun run build` limpio (33 rutas API en total). Backend-only, mismo
+patrón que 3f: puerto 3000 verificado libre antes de levantar
+(`netstat -ano | grep ':3000'`), contenedor `sake-seaweedfs` ya corriendo
+reutilizado tal cual. Script desechable (`_seed-session-3g.ts`, borrado
+antes de terminar la sesión) creó una sesión real para el usuario ya
+existente en `.data/dev.db` (sin exponer su password) y confirmó que el
+libro de prueba de la Fase 3f (`test-book-3f.epub`, id 1) seguía ahí.
+Contra el build de producción real (`bun run start`) con `curl`:
+- `GET /api/library/ratings` sin cookie → 200 con lista vacía (confirma
+  que es pública).
+- `GET /api/library/:id/progress-history` sin sesión → 401; con sesión,
+  libro válido → 200 vacío; id no numérico → 400.
+- `PUT /api/library/:id/rating` → rating fuera de rango (9) → 400; rating
+  válido (4) → persiste, y `GET /api/library/ratings` lo refleja de
+  inmediato (ruta pública, sin cache); libro inexistente → 404. Reseteado
+  a `null` al final para dejar el libro de prueba limpio.
+- `PUT /api/library/:id/state` → sin campos → 400; `isRead: true` →
+  `progressPercent` salta a 1, `readAt` se setea, reflejado en
+  `GET /api/library/:id/detail`; `archived: true` → `excludeFromNewBooks`
+  se activa en cascada (`effectiveExclude`); revertido a estado limpio
+  (`archived: false, isRead: false`) al final.
+- `PUT /api/library/progress/web` → sin sesión → 401; `readerSessionId`
+  no-UUID → 400; `percentFinished` sin `lastXPointer` (o viceversa) → 400;
+  `fileName` que no matchea ningún libro → 404; anotación inválida
+  (campos requeridos faltantes) → 400. **Guardado real contra S3**: primer
+  PUT (sin sidecar previo en S3) generó un sidecar mínimo, lo subió a
+  `library/test-book-3f.sdr/metadata.epub.lua` en el bucket real de
+  SeaweedFS, y creó una fila en el historial de progreso (25%). Segundo
+  PUT con el mismo `readerSessionId` **leyó el sidecar real de vuelta de
+  S3**, fusionó un highlight nuevo preservando la estructura Lua
+  existente, subió el resultado mergeado, y el historial se **actualizó
+  in-place** (upsert por `readerSessionId`, no una fila nueva) de 25% a
+  60% — confirma tanto el merge de contenido Lua real como el
+  comportamiento de upsert vs. append de `BookProgressHistoryRepository`.
+
+No se tocó `/library` ni se montó ninguna UI — mismo criterio que 3f,
+sigue sin existir superficie de biblioteca real hasta la Fase 4.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
 > `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — **la Fase 2
-> está completa** (2a-2d) y **la Fase 3a-3f** también (logger, auth local,
+> está completa** (2a-2d) y **la Fase 3a-3g** también (logger, auth local,
 > Shelves, Account, Devices, Plugin, los mirrors de Z-Library, el App pane,
-> y ahora el **núcleo** de library/books — listar/ver detalle/leer EPUB/
-> portada/asignar a estantes). Con el App pane, el Settings modal quedó
-> 100% real salvo Hardcover (bloqueado, ver abajo) y el login real de
-> Z-Library (mockeado a propósito, Fase 2d). Notas importantes ya resueltas
-> (secciones "Fase 3a-3f — Detalle de lo hecho"): en Next 16 el archivo se
-> llama `proxy.ts`, no `middleware.ts` — de momento NO hay `proxy.ts`, la
-> auth se resuelve por-ruta vía `src/lib/server/auth/require-session.ts`;
+> el **núcleo** de library/books — listar/ver detalle/leer EPUB/portada/
+> asignar a estantes —, y ahora **progreso/rating** — ratings, historial de
+> progreso, rating, isRead/archived/excludeFromNewBooks, autosave del
+> lector web). Con el App pane, el Settings modal quedó 100% real salvo
+> Hardcover (bloqueado, ver abajo) y el login real de Z-Library (mockeado a
+> propósito, Fase 2d). Notas importantes ya resueltas (secciones "Fase
+> 3a-3g — Detalle de lo hecho"): en Next 16 el archivo se llama `proxy.ts`,
+> no `middleware.ts` — de momento NO hay `proxy.ts`, la auth se resuelve
+> por-ruta vía `src/lib/server/auth/require-session.ts` (solo sesión por
+> cookie — **no** soporta API key de dispositivo, ver nota de 3g abajo);
 > `CreateDeviceApiKeyUseCase` sigue sin portar; hay un contenedor Docker
 > `sake-seaweedfs` (S3 local) que ya estaba corriendo de trabajo previo del
 > usuario (instrucciones para levantarlo en la sección de la Fase 3c); y
 > **Hardcover sigue bloqueado** — su servicio de sync real necesita más que
-> solo `getAll`/`getById` de `BookRepository` (el resto del dominio
-> library/books todavía no existe). Nota operativa (ya pasó dos veces): si
-> vas a levantar el servidor para verificar, revisa primero que no haya un
-> `bun run dev`/`bun run start` viejo colgado en el puerto 3000 de una
-> sesión anterior (`netstat -ano | grep ':3000'` en Git Bash) — si `bun run
-> start` falla con `EADDRINUSE` en background no siempre es obvio, y
-> terminarás verificando contra código viejo sin darte cuenta.
+> solo `getAll`/`getById`/progreso/rating de `BookRepository` (el resto del
+> dominio library/books todavía no existe). Nota operativa (ya pasó varias
+> veces): si vas a levantar el servidor para verificar, revisa primero que
+> no haya un `bun run dev`/`bun run start` viejo colgado en el puerto 3000
+> de una sesión anterior (`netstat -ano | grep ':3000'` en Git Bash) — si
+> `bun run start` falla con `EADDRINUSE` en background no siempre es obvio,
+> y terminarás verificando contra código viejo sin darte cuenta.
 >
 > **La Fase 3f fue una sesión de scoping dedicada para library/books**
 > (dominio completo: ~8,600 líneas si se tomara junto — se trozó en
-> mini-fases por dependencia). Con el núcleo cerrado, lee la sección "Fase
-> 3f — Detalle de lo hecho" para el troceo completo y por qué quedó así:
-> el orden propuesto y confirmado con el usuario fue 3f núcleo (hecho) →
-> **3g progreso/rating** (siguiente candidato natural, pequeño: PutProgress/
-> GetProgress/PutWebReaderProgress/GetBookProgressHistory/UpdateBookRating/
-> ListLibraryRatings/UpdateLibraryBookState) → 3h papelera → 3i portadas
-> (upload/import) → 3j+ metadata providers (otra sub-fase de scoping, 3,346
-> líneas aparte) → adquisición Z-Library real (ligada al login real ya
-> diferido a Fase 4). **No asumas que 3g cabe igual de chico que se ve** —
-> igual que siempre, lee el código real primero y confirma el tamaño antes
-> de comprometerte. También sigue vigente la decisión de metodología: sin
-> UI de biblioteca real todavía (`/library` es el placeholder de Fase 4),
-> verificar cada mini-fase de library/books por build + curl + inspección
-> directa de DB/S3 (scripts desechables para sembrar datos, borrados antes
-> de commit), no por Playwright-contra-UI — eso vuelve cuando la Fase 4
-> construya la página real. Plantea el alcance de lo que sea que sigue
-> antes de escribir nada, mismo patrón que siempre.
+> mini-fases por dependencia). Lee la sección "Fase 3f — Detalle de lo
+> hecho" para el troceo completo. El orden original propuesto era 3f núcleo
+> (hecho) → 3g progreso/rating (hecho, ver abajo) → 3h papelera → 3i
+> portadas (upload/import) → 3j+ metadata providers (otra sub-fase de
+> scoping, 3,346 líneas aparte) → adquisición Z-Library real (ligada al
+> login real ya diferido a Fase 4).
+>
+> **La Fase 3g dejó algo fuera a propósito — importante para lo que sigue:**
+> al leer el código real, `PutProgress`/`GetProgress` (el sync de progreso
+> de los dispositivos KOReader físicos, no el autosave del lector web) usan
+> auth dual — sesión O API key de dispositivo — que `requireSession()` no
+> soporta (rechaza cualquier actor que no sea `session`). Como
+> `CreateDeviceApiKeyUseCase` (emisión de esas API keys, el pairing del
+> plugin) tampoco está portado, se decidió con el usuario diferir esas dos
+> rutas a una mini-fase futura de "sync de dispositivos KOReader" que
+> probablemente combine ambas cosas (hay que diseñar un helper de auth
+> nuevo, tipo `requireActor()`, que acepte sesión o API key). El resto de
+> 3g (ratings, historial, rating, estado, autosave del lector web) sí se
+> portó completo — incluyendo, sin que lo pidiera el scoping original, **una
+> librería Lua entera** (`src/lib/koreader/`, 620 líneas: parser/
+> serializador de tablas Lua + el formato de sidecar `.sdr` de KOReader)
+> porque el autosave del lector web la necesita para fusionar progreso con
+> anotaciones existentes. Lee la sección "Fase 3g — Detalle de lo hecho"
+> antes de tocar nada relacionado — esa librería Lua también la va a
+> necesitar la futura mini-fase de sync de dispositivos.
+>
+> Para lo que sigas ahora (candidato natural: **3h papelera**, o la mini-fase
+> de sync de dispositivos KOReader si prefieres cerrar ese hueco antes):
+> **no asumas que cabe igual de chico que se ve** — igual que siempre, lee
+> el código real primero y confirma el tamaño antes de comprometerte.
+> También sigue vigente la decisión de metodología: sin UI de biblioteca
+> real todavía (`/library` es el placeholder de Fase 4), verificar cada
+> mini-fase de library/books por build + curl + inspección directa de
+> DB/S3 (scripts desechables para sembrar datos, borrados antes de
+> terminar la sesión), no por Playwright-contra-UI — eso vuelve cuando la
+> Fase 4 construya la página real. Plantea el alcance de lo que sea que
+> sigue antes de escribir nada, mismo patrón que siempre.

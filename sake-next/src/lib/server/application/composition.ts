@@ -1,12 +1,16 @@
-// Composition root — Fase 3a+3b+3c+3d+3e+3f: auth local, shelves, Account/
+// Composition root — Fase 3a+3b+3c+3d+3e+3f+3g: auth local, shelves, Account/
 // Devices (API keys, logout-all, basic auth password, devices), el Plugin
-// pane, los mirrors de Z-Library, el App pane, y ahora el núcleo de
-// library/books (listar/ver detalle/leer EPUB/portada/asignar a estantes)
-// están wireados. Cuando se migren más features, extender este archivo
-// (igual que el original `composition.ts` barrel, pero sin arrastrar
-// subsistemas que aún no existen en sake-next: progreso/rating, papelera,
-// portadas upload/import, metadata providers, adquisición Z-Library,
-// annotations...).
+// pane, los mirrors de Z-Library, el App pane, el núcleo de library/books
+// (listar/ver detalle/leer EPUB/portada/asignar a estantes), y ahora
+// progreso/rating (ratings, progress-history, rating, state, autosave del
+// lector web) están wireados. El sync de progreso de dispositivos KOReader
+// (PutProgress/GetProgress) queda fuera de 3g a propósito — necesita un
+// mecanismo de auth dual (sesión o API key de dispositivo) ligado al
+// device-pairing todavía sin portar (CreateDeviceApiKeyUseCase). Cuando se
+// migren más features, extender este archivo (igual que el original
+// `composition.ts` barrel, pero sin arrastrar subsistemas que aún no
+// existen en sake-next: papelera, portadas upload/import, metadata
+// providers, adquisición Z-Library, annotations, sync de dispositivos...).
 import { UserRepository } from "@/lib/server/infrastructure/repositories/user-repository";
 import { UserSessionRepository } from "@/lib/server/infrastructure/repositories/user-session-repository";
 import { UserApiKeyRepository } from "@/lib/server/infrastructure/repositories/user-api-key-repository";
@@ -20,8 +24,12 @@ import { KoreaderPluginArtifactService } from "@/lib/server/application/services
 import { ZLibraryMirrorSettingsRepository } from "@/lib/server/infrastructure/repositories/zlibrary-mirror-settings-repository";
 import { MigrationStatusRepository } from "@/lib/server/infrastructure/repositories/migration-status-repository";
 import { BookRepository } from "@/lib/server/infrastructure/repositories/book-repository";
+import { BookProgressHistoryRepository } from "@/lib/server/infrastructure/repositories/book-progress-history-repository";
 import { createLazySingleton } from "@/lib/server/utils/createLazySingleton";
 import { resolveZLibraryMirrorUrls } from "@/lib/server/config/zlibrary";
+import { ProgressBookResolver } from "@/lib/server/application/services/progress-book-resolver";
+import { ProgressPersistenceService } from "@/lib/server/application/services/progress-persistence-service";
+import { SidecarWriteCoordinator } from "@/lib/server/application/services/sidecar-write-coordinator";
 
 import { ResolveRequestAuthUseCase } from "@/lib/server/application/use-cases/resolve-request-auth";
 import { GetAuthStatusUseCase } from "@/lib/server/application/use-cases/get-auth-status";
@@ -54,6 +62,11 @@ import { GetLibraryBookDetailUseCase } from "@/lib/server/application/use-cases/
 import { GetLibraryBookContentUseCase } from "@/lib/server/application/use-cases/get-library-book-content";
 import { GetLibraryCoverUseCase } from "@/lib/server/application/use-cases/get-library-cover";
 import { SetBookShelvesUseCase } from "@/lib/server/application/use-cases/set-book-shelves";
+import { ListLibraryRatingsUseCase } from "@/lib/server/application/use-cases/list-library-ratings";
+import { GetBookProgressHistoryUseCase } from "@/lib/server/application/use-cases/get-book-progress-history";
+import { UpdateBookRatingUseCase } from "@/lib/server/application/use-cases/update-book-rating";
+import { UpdateLibraryBookStateUseCase } from "@/lib/server/application/use-cases/update-library-book-state";
+import { PutWebReaderProgressUseCase } from "@/lib/server/application/use-cases/put-web-reader-progress";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -70,6 +83,8 @@ export const zlibraryMirrorSettingsRepository = new ZLibraryMirrorSettingsReposi
 );
 export const migrationStatusRepository = new MigrationStatusRepository();
 export const bookRepository = new BookRepository();
+export const bookProgressHistoryRepository = new BookProgressHistoryRepository();
+export const sidecarWriteCoordinator = new SidecarWriteCoordinator();
 
 export const resolveRequestAuthUseCase = new ResolveRequestAuthUseCase(userRepository, userSessionRepository, userApiKeyRepository);
 export const getAuthStatusUseCase = new GetAuthStatusUseCase(userRepository);
@@ -117,3 +132,12 @@ export const getLibraryBookDetailUseCase = new GetLibraryBookDetailUseCase(bookR
 export const getLibraryBookContentUseCase = new GetLibraryBookContentUseCase(bookRepository, storage);
 export const getLibraryCoverUseCase = new GetLibraryCoverUseCase(storage);
 export const setBookShelvesUseCase = new SetBookShelvesUseCase(bookRepository, shelfRepository);
+
+export const listLibraryRatingsUseCase = new ListLibraryRatingsUseCase(bookRepository);
+export const getBookProgressHistoryUseCase = new GetBookProgressHistoryUseCase(bookRepository, bookProgressHistoryRepository);
+export const updateBookRatingUseCase = new UpdateBookRatingUseCase(bookRepository);
+export const updateLibraryBookStateUseCase = new UpdateLibraryBookStateUseCase(bookRepository);
+
+const progressBookResolver = new ProgressBookResolver(bookRepository);
+const progressPersistenceService = new ProgressPersistenceService(bookRepository, bookProgressHistoryRepository, storage, deviceProgressDownloadRepository);
+export const putWebReaderProgressUseCase = new PutWebReaderProgressUseCase(progressBookResolver, storage, progressPersistenceService, sidecarWriteCoordinator);

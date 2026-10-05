@@ -8,6 +8,7 @@ import type {
   UserSession,
 } from "@/lib/server/domain/auth";
 import type { Book } from "@/lib/server/domain/book";
+import type { BookProgressHistory } from "@/lib/server/domain/book-progress-history";
 import type { Device } from "@/lib/server/domain/device";
 import type { PluginRelease, UpsertPluginReleaseInput } from "@/lib/server/domain/plugin-release";
 
@@ -51,18 +52,44 @@ export interface ShelfRepositoryPort {
 }
 
 // Recortado a lo que usan ListLibraryUseCase/GetLibraryBookDetailUseCase/
-// GetLibraryBookContentUseCase/SetBookShelvesUseCase (Fase 3f — núcleo:
-// listar/ver/leer/asignar estantes). El resto del original (getAllForStats,
-// getByIdIncludingTrashed, getByZLibId*, getByStorageKey*, getByTitle*,
-// hasOtherBookWithStorageKey, listStorageKeysWithExternalReferences, create,
-// updateMetadata, updateHardcoverId, delete, resetDownloadStatus,
-// updateProgress, touchProgressUpdatedAt, updateRating, updateState,
+// GetLibraryBookContentUseCase/SetBookShelvesUseCase (Fase 3f — núcleo) y,
+// desde 3g, ProgressBookResolver/GetProgressUseCase/UpdateBookRatingUseCase/
+// ListLibraryRatingsUseCase/UpdateLibraryBookStateUseCase (getByStorageKey,
+// updateProgress, updateRating, updateState). El resto del original
+// (getAllForStats, getByIdIncludingTrashed, getByZLibId*,
+// getByStorageKeyIncludingTrashed, getByTitle*, hasOtherBookWithStorageKey,
+// listStorageKeysWithExternalReferences, create, updateMetadata,
+// updateHardcoverId, delete, resetDownloadStatus, touchProgressUpdatedAt,
 // getNotDownloadedByDevice, getBooksWithNewProgressForDevice, getTrashed,
 // moveToTrash, restoreFromTrash, getExpiredTrash, count) pertenece a
-// mini-fases futuras (progreso/rating, papelera, adquisición, dispositivos).
+// mini-fases futuras (papelera, adquisición, dispositivos).
 export interface BookRepositoryPort {
   getAll(): Promise<Book[]>;
   getById(id: number): Promise<Book | undefined>;
+  getByStorageKey(storageKey: string): Promise<Book | undefined>;
+  updateProgress(bookId: number, progressKey: string, progressPercent: number | null, progressUpdatedAt?: string | null): Promise<void>;
+  updateRating(bookId: number, rating: number | null): Promise<void>;
+  updateState(
+    bookId: number,
+    state: {
+      readAt?: string | null;
+      archivedAt?: string | null;
+      progressPercent?: number | null;
+      progressBeforeRead?: number | null;
+      excludeFromNewBooks?: boolean;
+    },
+  ): Promise<void>;
+}
+
+export interface CreateBookProgressHistorySnapshot {
+  bookId: number;
+  progressPercent: number;
+}
+
+export interface BookProgressHistoryRepositoryPort {
+  appendSnapshot(input: CreateBookProgressHistorySnapshot): Promise<BookProgressHistory>;
+  upsertReaderSessionSnapshot(input: CreateBookProgressHistorySnapshot & { readerSessionId: string }): Promise<BookProgressHistory>;
+  getByBookId(bookId: number): Promise<BookProgressHistory[]>;
 }
 
 // Recortado a lo que usan ListDevicesUseCase/DeleteDeviceUseCase. `upsert` y
@@ -84,9 +111,16 @@ export interface DeviceDownloadRepositoryPort {
   deleteByDeviceId(deviceId: string): Promise<void>;
 }
 
-// Recortado a lo único que usa DeleteDeviceUseCase.
+// deleteByDeviceId es lo único que usa DeleteDeviceUseCase.
+// upsertByDeviceAndBook lo usa ProgressPersistenceService (Fase 3g) para
+// marcar que un dispositivo confirmó la última actualización de progreso de
+// un libro — en 3g nunca se ejecuta en la práctica (PutWebReaderProgress no
+// pasa deviceId), pero el servicio es compartido con el sync de progreso de
+// dispositivos KOReader (diferido, ver Fase 3g en el handoff), así que se
+// porta completo en vez de recortarlo.
 export interface DeviceProgressDownloadRepositoryPort {
   deleteByDeviceId(deviceId: string): Promise<void>;
+  upsertByDeviceAndBook(input: { deviceId: string; bookId: number; progressUpdatedAt: string }): Promise<void>;
 }
 
 export interface PluginReleaseRepositoryPort {
