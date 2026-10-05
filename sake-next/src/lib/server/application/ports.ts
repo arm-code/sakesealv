@@ -7,7 +7,7 @@ import type {
   UserApiKey,
   UserSession,
 } from "@/lib/server/domain/auth";
-import type { Book } from "@/lib/server/domain/book";
+import type { Book, UpdateBookMetadataInput } from "@/lib/server/domain/book";
 import type { BookProgressHistory } from "@/lib/server/domain/book-progress-history";
 import type { Device } from "@/lib/server/domain/device";
 import type { PluginRelease, UpsertPluginReleaseInput } from "@/lib/server/domain/plugin-release";
@@ -54,13 +54,11 @@ export interface ShelfRepositoryPort {
 // Recortado a lo que usan ListLibraryUseCase/GetLibraryBookDetailUseCase/
 // GetLibraryBookContentUseCase/SetBookShelvesUseCase (Fase 3f — núcleo),
 // ProgressBookResolver/GetProgressUseCase/UpdateBookRatingUseCase/
-// ListLibraryRatingsUseCase/UpdateLibraryBookStateUseCase (Fase 3g), y desde
-// 3h los 4 use-cases de papelera + PurgeExpiredTrashUseCase (getTrashed,
-// moveToTrash, restoreFromTrash, getByIdIncludingTrashed,
-// hasOtherBookWithStorageKey, listStorageKeysWithExternalReferences,
-// getExpiredTrash, delete). El resto del original (getAllForStats,
-// getByZLibId*, getByStorageKeyIncludingTrashed, getByTitle*, create,
-// updateMetadata, updateHardcoverId, resetDownloadStatus,
+// ListLibraryRatingsUseCase/UpdateLibraryBookStateUseCase (Fase 3g), los 4
+// use-cases de papelera + PurgeExpiredTrashUseCase (Fase 3h), y desde 3i
+// Upload/ImportLibraryBookCoverUseCase (updateMetadata). El resto del
+// original (getAllForStats, getByZLibId*, getByStorageKeyIncludingTrashed,
+// getByTitle*, create, updateHardcoverId, resetDownloadStatus,
 // touchProgressUpdatedAt, getNotDownloadedByDevice,
 // getBooksWithNewProgressForDevice, count) pertenece a mini-fases futuras
 // (adquisición, dispositivos, estadísticas).
@@ -71,6 +69,7 @@ export interface BookRepositoryPort {
   getByStorageKey(storageKey: string): Promise<Book | undefined>;
   hasOtherBookWithStorageKey(storageKey: string, excludeBookId: number): Promise<boolean>;
   listStorageKeysWithExternalReferences(storageKeys: string[], excludeBookIds: number[]): Promise<string[]>;
+  updateMetadata(id: number, metadata: UpdateBookMetadataInput): Promise<Book>;
   updateProgress(bookId: number, progressKey: string, progressPercent: number | null, progressUpdatedAt?: string | null): Promise<void>;
   updateRating(bookId: number, rating: number | null): Promise<void>;
   updateState(

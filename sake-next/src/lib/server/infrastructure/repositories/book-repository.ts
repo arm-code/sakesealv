@@ -1,9 +1,9 @@
 import type { BookRepositoryPort } from "@/lib/server/application/ports";
-import type { Book } from "@/lib/server/domain/book";
+import type { Book, UpdateBookMetadataInput } from "@/lib/server/domain/book";
 import { drizzleDb } from "@/lib/server/infrastructure/db/client";
 import { books } from "@/lib/server/infrastructure/db/schema";
 import { createChildLogger } from "@/lib/server/infrastructure/logging/logger";
-import { bookSelection, bookSelectionWithDownloadState, mapBookRow, mapBookWithDownloadRow } from "./book-repository.helpers";
+import { bookSelection, bookSelectionWithDownloadState, mapBookRow, mapBookWithDownloadRow, toUpdateBookMetadataRow } from "./book-repository.helpers";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, notInArray, sql } from "drizzle-orm";
 
 export class BookRepository implements BookRepositoryPort {
@@ -40,6 +40,18 @@ export class BookRepository implements BookRepositoryPort {
       .where(and(eq(books.s3StorageKey, storageKey), isNull(books.deletedAt)))
       .limit(1);
     return row ? mapBookRow(row) : undefined;
+  }
+
+  async updateMetadata(id: number, metadata: UpdateBookMetadataInput): Promise<Book> {
+    const [updated] = await drizzleDb.update(books).set(toUpdateBookMetadataRow(metadata)).where(eq(books.id, id)).returning(bookSelection);
+
+    if (!updated) {
+      throw new Error("Failed to update book metadata");
+    }
+
+    this.repoLogger.info({ event: "book.metadata.updated", id, zLibId: updated.zLibId, storageKey: updated.s3StorageKey }, "Book metadata updated");
+
+    return mapBookRow(updated);
   }
 
   async updateProgress(bookId: number, progressKey: string, progressPercent: number | null, progressUpdatedAt?: string | null): Promise<void> {

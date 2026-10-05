@@ -31,7 +31,8 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3f — library/books: **núcleo** (listar/ver detalle/leer EPUB/portada/asignar a estantes), verificado backend-only (sin UI todavía, `/library` sigue siendo el placeholder de Fase 4).
    - ✅ 3g — library/books: **progreso/rating** (ratings, historial de progreso, rating, isRead/archived/excludeFromNewBooks, autosave del lector web), verificado backend-only. El sync de progreso de dispositivos KOReader (`PutProgress`/`GetProgress`) quedó **fuera a propósito** — ver sección "Fase 3g" para el motivo (auth dual sesión/API key, ligada al device-pairing todavía sin portar).
    - ✅ 3h — library/books: **papelera** (listar/mover a la papelera/restaurar/borrar permanente + purga de expirados), verificado backend-only, incluyendo limpieza real de S3 (archivo principal, progreso, portadas). `PurgeExpiredTrashUseCase` quedó wireado en `composition.ts` pero **sin ruta ni cron** — ver sección "Fase 3h" para el motivo (mismo hueco de arquitectura que el sync del plugin/Hardcover).
-   - ⬜ 3i+ — resto de library/books (sesión de scoping propia hizo el troceo, ver sección "Fase 3f"): portadas (upload/import), metadata providers (otra sub-fase de scoping aparte), adquisición Z-Library real (search/download/login), sync de progreso de dispositivos KOReader (ligado a device-pairing). Después de eso: OPDS, DAV, annotations, queue, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
+   - ✅ 3i — library/books: **portadas upload/import** (subir una imagen propia desde el EPUB o importar desde una URL externa), verificado backend-only contra S3 real, incluyendo validación de magic bytes y limpieza de portadas viejas al reemplazar. El flujo de importar portada al aplicar un candidato de metadata de búsqueda (Z-Library/mirrors/credenciales) quedó **fuera a propósito** — pertenece a metadata providers (3j+).
+   - ⬜ 3j+ — resto de library/books (sesión de scoping propia hizo el troceo, ver sección "Fase 3f"): metadata providers (otra sub-fase de scoping aparte, 3,346 líneas), adquisición Z-Library real (search/download/login), sync de progreso de dispositivos KOReader (ligado a device-pairing). Después de eso: OPDS, DAV, annotations, queue, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
 ---
@@ -1141,46 +1142,162 @@ fases anteriores de library/books.
 
 ---
 
+## Fase 3i — Detalle de lo hecho (COMPLETA)
+
+**Scoping confirmado antes de escribir código, acotando deliberadamente el
+`ManagedBookCoverService` completo (801 líneas originales) a solo lo que
+necesitan `UploadLibraryBookCoverUseCase`/`ImportLibraryBookCoverUseCase`
+(68+70 líneas).** El servicio original tiene 3 métodos públicos:
+`storeFromBuffer` (upload desde el EPUB), `storeFromExternalUrl` (import
+manual por URL) y `storeFromSearchImport` (importar la portada que trae un
+candidato de metadata de búsqueda — Z-Library/mirrors/credenciales de
+sesión). Los dos primeros no tocan nada de Z-Library; el tercero es la
+única razón por la que el constructor original acepta
+`mirrorSource`/`ZLibraryMirrorResolver` y por la que existen
+`normalizeSourceUrl`/`buildFetchHeaders`/`resolveZLibraryMirrorUrls`. Se
+confirmó leyendo el código que **ninguno de esos tres** lo usan los dos
+use-cases de esta fase — pertenecen enteros a `ApplyMetadataCandidateUseCase`
+(metadata providers, 3j+). Se portaron `storeFromBuffer`/
+`storeFromExternalUrl` y todos sus helpers compartidos
+(`uploadManagedCover`, `deleteOtherManagedCovers`, validación de magic
+bytes, `readResponseBufferWithinLimit`, bloqueo de hostnames privados para
+import manual) **tal cual**, sin recortar nada dentro de ellos — la única
+simplificación fue de forma, no de lógica (ver abajo).
+
+### Funciones sueltas en vez de clase (mismo patrón que `deleteForBookStorageKey` en 3h)
+El archivo `managed-book-cover.ts` ya venía siendo funcional (no una
+clase) desde 3f/3h. Se mantuvo esa forma: en vez de instanciar
+`ManagedBookCoverService` con `storage`/`fetchImpl` como campos privados,
+`storeManagedBookCoverFromBuffer(storage, input)` y
+`storeManagedBookCoverFromExternalUrl(storage, input, fetchImpl?)` reciben
+esas dependencias como parámetros. Mismo comportamiento exacto, sin
+arrastrar el constructor con la lógica de resolución de mirrors que ya no
+hace falta.
+
+### `BookRepository.updateMetadata`: reescribe la fila completa, no un patch
+A diferencia de `updateRating`/`updateState` (3g/3h, que solo tocan los
+campos que cambian), `updateMetadata` en el original **reemplaza todos los
+campos de metadata a la vez** (`UpdateBookMetadataInput`, 24 campos) —
+así es como ya lo usaban `UploadLibraryBookCoverUseCase`/
+`ImportLibraryBookCoverUseCase`: leen el libro completo, lo pasan por
+`toUpdateMetadataInput(existing, newCoverUrl)` (solo cambia `cover`,
+preserva el resto) y reescriben. Se portó tal cual — `UpdateBookMetadataInput`
+se añadió a `book.ts` (se había dejado fuera a propósito en 3f, "no lo usa
+nada todavía" — ya hace falta). `CreateBookInput` sigue sin portar, es de
+la mini-fase de adquisición.
+
+### Archivos creados
+- `managed-book-cover.ts` ganó: `buildManagedBookCoverFileName`,
+  `buildManagedBookCoverUrl`, `buildManagedBookCoverVersionToken`,
+  `buildVersionedManagedBookCoverUrl`, `isManagedBookCoverUrl`,
+  `MIN_MANAGED_BOOK_COVER_BYTES`/`MAX_MANAGED_BOOK_COVER_BYTES`, y las dos
+  funciones de store (con todos sus helpers privados compartidos).
+- `src/lib/server/application/use-cases/book-cover-metadata.ts` —
+  `toUpdateMetadataInput`, puerto de `bookCoverMetadata.ts` (simplificado
+  para tomar un `Book` ya resuelto en vez de `Book | undefined` — los
+  use-cases ya hacen el check de "no encontrado" antes de llamarlo, así
+  que el guard `if (!existing) throw` del original no hacía falta).
+- `upload-library-book-cover.ts`, `import-library-book-cover.ts` — puertos
+  1:1 de los use-cases, con `storage: StoragePort` inyectado directo en
+  vez de un `Pick<ManagedBookCoverService, '...'>`.
+- `book.ts` ganó `UpdateBookMetadataInput`.
+- `book-repository.helpers.ts` ganó `toUpdateBookMetadataRow`.
+- `book-repository.ts` ganó `updateMetadata`.
+- `ports.ts` — `BookRepositoryPort` ganó `updateMetadata`.
+- 2 rutas, ambas con `requireSession()`: `/api/library/[id]/cover/upload`
+  (POST, multipart/form-data) y `/api/library/[id]/cover/import` (POST,
+  JSON con `coverUrl` opcional — si se omite, usa `book.cover` existente
+  como fuente).
+- `composition.ts` — los 2 use-cases wireados (reutilizando
+  `bookRepository`/`storage`).
+
+### Verificación
+`bun run build` limpio (38 rutas API en total). Backend-only, mismo
+patrón que 3f-3h: puerto 3000 verificado libre, `sake-seaweedfs`
+reutilizado. Script desechable (`_seed-session-3i.ts`, borrado al
+terminar) creó una sesión y un libro de prueba nuevo (id 4, sin portada).
+Gotcha de la propia verificación: `curl -F "file=@/tmp/..."` fallaba con
+exit code 26 (`CURLE_READ_ERROR`) en Git Bash sobre Windows a pesar de que
+el archivo existía — se resolvió usando una ruta absoluta de Windows bajo
+el directorio de scratchpad en vez de `/tmp/`. Contra el build de
+producción real (`bun run start`) con `curl`:
+- `POST /api/library/:id/cover/upload` sin sesión → 401; content-type no
+  imagen → 400; archivo vacío → 400; archivo real (PNG descargado de
+  GitHub, 9,208 bytes) → 200 con una URL versionada
+  (`/api/library/covers/test-book-3i.epub.png?v=<hash>`).
+- `GET /api/library/:id/detail` refleja que la metadata se reescribió sin
+  tocar el resto de campos (title/author intactos).
+- `GET /api/library/covers/:fileName` sirvió los bytes reales de vuelta
+  desde S3 — mismo tamaño y mismo contenido que el archivo subido.
+- `POST /api/library/:id/cover/import` sin `coverUrl` y con el cover ya
+  interno → 400 "Cover is already stored internally" (confirma
+  `isManagedBookCoverUrl`); con `coverUrl` externo explícito (la misma
+  imagen de GitHub) → 200, **mismo version token** que el upload anterior
+  (confirma que el hash SHA-256 del contenido es el mecanismo de
+  versionado, no un timestamp); con hostname bloqueado
+  (`http://localhost/evil.png`) → 502 "Failed to import cover image"
+  (confirma `isBlockedManualImportHostname`); body con `coverUrl` no
+  string/null → 400; libro inexistente → 404.
+- Verificado directamente contra S3 (`storage.list("covers/test-book-3i.epub.")`):
+  **un solo objeto** permanece después de upload + import sobre el mismo
+  libro (confirma `deleteOtherManagedCovers` limpiando versiones viejas en
+  cada reemplazo, no solo acumulando). Limpieza final: se usó la papelera
+  de la Fase 3h (`trash` + `DELETE`) para borrar el libro de prueba y
+  confirmar que `DeleteTrashedLibraryBookUseCase` también limpió su
+  portada real de S3 (`storage.list` devolvió `[]` después).
+
+No se tocó `/library` ni se montó ninguna UI — mismo criterio que
+fases anteriores de library/books.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
 
 > Retomamos la migración de Sake (SvelteKit → Next.js). Lee
 > `sake-next/MIGRATION_HANDOFF.md` completo para el contexto — **la Fase 2
-> está completa** (2a-2d) y **la Fase 3a-3h** también (logger, auth local,
+> está completa** (2a-2d) y **la Fase 3a-3i** también (logger, auth local,
 > Shelves, Account, Devices, Plugin, los mirrors de Z-Library, el App pane,
 > el **núcleo** de library/books — listar/ver detalle/leer EPUB/portada/
 > asignar a estantes —, **progreso/rating** — ratings, historial de
 > progreso, rating, isRead/archived/excludeFromNewBooks, autosave del
-> lector web —, y ahora **papelera** — listar/mover/restaurar/borrar
-> permanente + purga de expirados). Con el App pane, el Settings modal
-> quedó 100% real salvo Hardcover (bloqueado, ver abajo) y el login real de
-> Z-Library (mockeado a propósito, Fase 2d). Notas importantes ya resueltas
-> (secciones "Fase 3a-3h — Detalle de lo hecho"): en Next 16 el archivo se
-> llama `proxy.ts`, no `middleware.ts` — de momento NO hay `proxy.ts`, la
-> auth se resuelve por-ruta vía `src/lib/server/auth/require-session.ts`
-> (solo sesión por cookie — **no** soporta API key de dispositivo, ver nota
-> de 3g abajo); `CreateDeviceApiKeyUseCase` sigue sin portar; hay un
-> contenedor Docker `sake-seaweedfs` (S3 local) que ya estaba corriendo de
-> trabajo previo del usuario (instrucciones para levantarlo en la sección
-> de la Fase 3c); y **Hardcover sigue bloqueado** — su servicio de sync
-> real necesita más que solo progreso/rating/papelera de `BookRepository`
-> (el resto del dominio library/books todavía no existe). Nota operativa
-> (ya pasó varias veces): si vas a levantar el servidor para verificar,
-> revisa primero que no haya un `bun run dev`/`bun run start` viejo colgado
-> en el puerto 3000 de una sesión anterior (`netstat -ano | grep ':3000'`
-> en Git Bash) — si `bun run start` falla con `EADDRINUSE` en background no
-> siempre es obvio, y terminarás verificando contra código viejo sin darte
-> cuenta.
+> lector web —, **papelera** — listar/mover/restaurar/borrar permanente +
+> purga de expirados —, y ahora **portadas upload/import** — subir una
+> imagen propia desde el EPUB o importar desde una URL externa). Con el App
+> pane, el Settings modal quedó 100% real salvo Hardcover (bloqueado, ver
+> abajo) y el login real de Z-Library (mockeado a propósito, Fase 2d).
+> Notas importantes ya resueltas (secciones "Fase 3a-3i — Detalle de lo
+> hecho"): en Next 16 el archivo se llama `proxy.ts`, no `middleware.ts` —
+> de momento NO hay `proxy.ts`, la auth se resuelve por-ruta vía
+> `src/lib/server/auth/require-session.ts` (solo sesión por cookie — **no**
+> soporta API key de dispositivo, ver nota de 3g abajo);
+> `CreateDeviceApiKeyUseCase` sigue sin portar; hay un contenedor Docker
+> `sake-seaweedfs` (S3 local) que ya estaba corriendo de trabajo previo del
+> usuario (instrucciones para levantarlo en la sección de la Fase 3c); y
+> **Hardcover sigue bloqueado** — su servicio de sync real necesita más que
+> progreso/rating/papelera/portadas de `BookRepository` (el resto del
+> dominio library/books todavía no existe). Nota operativa (ya pasó varias
+> veces): si vas a levantar el servidor para verificar, revisa primero que
+> no haya un `bun run dev`/`bun run start` viejo colgado en el puerto 3000
+> de una sesión anterior (`netstat -ano | grep ':3000'` en Git Bash) — si
+> `bun run start` falla con `EADDRINUSE` en background no siempre es obvio,
+> y terminarás verificando contra código viejo sin darte cuenta. Otra nota
+> operativa nueva de 3i: si necesitas subir un archivo local con `curl -F`
+> para probar un endpoint multipart, usa una ruta absoluta de Windows bajo
+> el directorio de scratchpad — `curl -F "file=@/tmp/..."` falla con
+> `CURLE_READ_ERROR` (exit 26) en Git Bash sobre Windows aunque el archivo
+> exista.
 >
 > **La Fase 3f fue una sesión de scoping dedicada para library/books**
 > (dominio completo: ~8,600 líneas si se tomara junto — se trozó en
 > mini-fases por dependencia). Lee la sección "Fase 3f — Detalle de lo
 > hecho" para el troceo completo. El orden original propuesto era 3f núcleo
-> (hecho) → 3g progreso/rating (hecho) → 3h papelera (hecho, ver abajo) →
-> **3i portadas** (upload/import, siguiente candidato natural) → 3j+
-> metadata providers (otra sub-fase de scoping, 3,346 líneas aparte) →
-> adquisición Z-Library real (ligada al login real ya diferido a Fase 4).
+> (hecho) → 3g progreso/rating (hecho) → 3h papelera (hecho) → 3i portadas
+> upload/import (hecho, ver abajo) → **3j+ metadata providers** (siguiente
+> candidato natural, otra sub-fase de scoping aparte — ~3,346 líneas en el
+> original, probablemente se trocee igual que library/books) → adquisición
+> Z-Library real (ligada al login real ya diferido a Fase 4).
 >
 > **La Fase 3g dejó algo fuera a propósito — importante para lo que sigue:**
 > al leer el código real, `PutProgress`/`GetProgress` (el sync de progreso
@@ -1209,19 +1326,30 @@ Pega esto al iniciar:
 > `composition.ts` sin ruta ni cron** — si retomas esa decisión de
 > arquitectura de jobs de fondo, ya hay 3 use-cases esperando ese mecanismo
 > (plugin sync, Hardcover, trash purge). Lee la sección "Fase 3h — Detalle
-> de lo hecho" para el resto (incluye una función suelta
-> `deleteManagedBookCoversForStorageKey` extraída del
-> `ManagedBookCoverService` original, útil también para 3i portadas).
+> de lo hecho" para el resto.
 >
-> Para lo que sigas ahora (candidato natural: **3i portadas upload/import**,
-> o la mini-fase de sync de dispositivos KOReader / la decisión de jobs de
-> fondo si prefieres cerrar esos huecos antes): **no asumas que cabe igual
-> de chico que se ve** — igual que siempre, lee el código real primero y
-> confirma el tamaño antes de comprometerte. También sigue vigente la
-> decisión de metodología: sin UI de biblioteca real todavía (`/library` es
-> el placeholder de Fase 4), verificar cada mini-fase de library/books por
-> build + curl + inspección directa de DB/S3 (scripts desechables para
-> sembrar datos, borrados antes de terminar la sesión), no por
-> Playwright-contra-UI — eso vuelve cuando la Fase 4 construya la página
-> real. Plantea el alcance de lo que sea que sigue antes de escribir nada,
-> mismo patrón que siempre.
+> **La Fase 3i recortó el `ManagedBookCoverService` original (801 líneas) a
+> solo lo que necesita upload/import** (`storeFromBuffer`/
+> `storeFromExternalUrl`, portados tal cual como funciones sueltas) —
+> **excluyó por completo** `storeFromSearchImport` y toda la lógica de
+> resolución de mirrors de Z-Library/credenciales de sesión que solo ese
+> método usa, porque pertenece a `ApplyMetadataCandidateUseCase` (metadata
+> providers, 3j+). Si al scopear 3j encuentras que `ApplyMetadataCandidateUseCase`
+> necesita importar la portada de un candidato de búsqueda, ese es el
+> momento de volver a `managed-book-cover.ts` y añadir esa pieza — no está
+> ahí todavía. Lee la sección "Fase 3i — Detalle de lo hecho" para el resto
+> (incluye el gotcha de `curl -F` en Windows, documentado arriba).
+>
+> Para lo que sigas ahora (candidato natural: **3j+ metadata providers** —
+> empezá con una sesión de scoping dedicada, como se hizo en 3f, porque es
+> grande y toca proveedores externos —, o la mini-fase de sync de
+> dispositivos KOReader / la decisión de jobs de fondo si prefieres cerrar
+> esos huecos antes): **no asumas que cabe igual de chico que se ve** —
+> igual que siempre, lee el código real primero y confirma el tamaño antes
+> de comprometerte. También sigue vigente la decisión de metodología: sin
+> UI de biblioteca real todavía (`/library` es el placeholder de Fase 4),
+> verificar cada mini-fase de library/books por build + curl + inspección
+> directa de DB/S3 (scripts desechables para sembrar datos, borrados antes
+> de terminar la sesión), no por Playwright-contra-UI — eso vuelve cuando
+> la Fase 4 construya la página real. Plantea el alcance de lo que sea que
+> sigue antes de escribir nada, mismo patrón que siempre.

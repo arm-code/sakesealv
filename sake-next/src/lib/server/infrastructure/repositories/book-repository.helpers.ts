@@ -1,4 +1,4 @@
-import type { Book } from "@/lib/server/domain/book";
+import type { Book, UpdateBookMetadataInput } from "@/lib/server/domain/book";
 import { books, deviceDownloads } from "@/lib/server/infrastructure/db/schema";
 import { sql } from "drizzle-orm";
 
@@ -139,4 +139,34 @@ export function mapBookRow(row: DbBookRow): Book {
 
 export function mapBookWithDownloadRow(row: DbBookWithDownloadRow): Book {
   return { ...mapBookRow(row), isDownloaded: Boolean(row.isDownloaded) };
+}
+
+export function toUpdateBookMetadataRow(metadata: UpdateBookMetadataInput) {
+  return {
+    zLibId: metadata.zLibId,
+    title: metadata.title,
+    author: metadata.author,
+    publisher: metadata.publisher,
+    series: metadata.series,
+    volume: metadata.volume,
+    seriesIndex: metadata.series_index,
+    edition: metadata.edition,
+    identifier: metadata.identifier,
+    pages: metadata.pages,
+    description: metadata.description,
+    googleBooksId: metadata.google_books_id,
+    openLibraryKey: metadata.open_library_key,
+    hardcoverId: metadata.hardcover_id,
+    amazonAsin: metadata.amazon_asin,
+    externalRating: metadata.external_rating,
+    externalRatingCount: metadata.external_rating_count,
+    cover: metadata.cover,
+    extension: metadata.extension,
+    filesize: metadata.filesize,
+    language: metadata.language,
+    year: metadata.year,
+    month: metadata.month,
+    day: metadata.day,
+    createdAt: metadata.createdAt,
+  };
 }

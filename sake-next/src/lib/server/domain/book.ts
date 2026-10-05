@@ -38,3 +38,34 @@ export interface Book {
   trash_expires_at: string | null;
   isDownloaded?: boolean;
 }
+
+// Usado por BookRepository.updateMetadata (Fase 3i — portadas upload/import).
+// CreateBookInput sigue sin portar, no lo usa nada todavía (pertenece a la
+// mini-fase de adquisición).
+export interface UpdateBookMetadataInput {
+  zLibId: string | null;
+  title: string;
+  author: string | null;
+  publisher: string | null;
+  series: string | null;
+  volume: string | null;
+  series_index: number | null;
+  edition: string | null;
+  identifier: string | null;
+  pages: number | null;
+  description: string | null;
+  google_books_id: string | null;
+  open_library_key: string | null;
+  hardcover_id?: string | null;
+  amazon_asin: string | null;
+  external_rating: number | null;
+  external_rating_count: number | null;
+  cover: string | null;
+  extension: string | null;
+  filesize: number | null;
+  language: string | null;
+  year: number | null;
+  month: number | null;
+  day: number | null;
+  createdAt: string | null;
+}

@@ -1,20 +1,23 @@
-// Composition root — Fase 3a..3h: auth local, shelves, Account/Devices (API
+// Composition root — Fase 3a..3i: auth local, shelves, Account/Devices (API
 // keys, logout-all, basic auth password, devices), el Plugin pane, los
 // mirrors de Z-Library, el App pane, el núcleo de library/books (listar/ver
 // detalle/leer EPUB/portada/asignar a estantes), progreso/rating (ratings,
-// progress-history, rating, state, autosave del lector web), y ahora
-// papelera (listar/mover/restaurar/borrar permanente + purga de expirados)
-// están wireados. El sync de progreso de dispositivos KOReader
+// progress-history, rating, state, autosave del lector web), papelera
+// (listar/mover/restaurar/borrar permanente + purga de expirados), y ahora
+// portadas upload/import (subir una imagen propia o importar desde una URL
+// externa) están wireados. El sync de progreso de dispositivos KOReader
 // (PutProgress/GetProgress) sigue fuera a propósito — necesita un mecanismo
 // de auth dual (sesión o API key de dispositivo) ligado al device-pairing
 // todavía sin portar (CreateDeviceApiKeyUseCase). `purgeExpiredTrashUseCase`
 // está wireado pero sin ruta ni cron — en el original se dispara desde
 // hooks.server.ts por intervalo, mismo hueco de arquitectura que el sync
-// del plugin (3c)/Hardcover. Cuando se migren más features, extender este
-// archivo (igual que el original `composition.ts` barrel, pero sin
-// arrastrar subsistemas que aún no existen en sake-next: portadas
-// upload/import, metadata providers, adquisición Z-Library, annotations,
-// sync de dispositivos...).
+// del plugin (3c)/Hardcover. El flujo de importar portada al aplicar un
+// candidato de metadata de búsqueda (storeFromSearchImport, con mirrors de
+// Z-Library/credenciales) sigue fuera — pertenece a metadata providers
+// (3j+). Cuando se migren más features, extender este archivo (igual que
+// el original `composition.ts` barrel, pero sin arrastrar subsistemas que
+// aún no existen en sake-next: metadata providers, adquisición Z-Library,
+// annotations, sync de dispositivos...).
 import { UserRepository } from "@/lib/server/infrastructure/repositories/user-repository";
 import { UserSessionRepository } from "@/lib/server/infrastructure/repositories/user-session-repository";
 import { UserApiKeyRepository } from "@/lib/server/infrastructure/repositories/user-api-key-repository";
@@ -76,6 +79,8 @@ import { MoveLibraryBookToTrashUseCase } from "@/lib/server/application/use-case
 import { RestoreLibraryBookUseCase } from "@/lib/server/application/use-cases/restore-library-book";
 import { DeleteTrashedLibraryBookUseCase } from "@/lib/server/application/use-cases/delete-trashed-library-book";
 import { PurgeExpiredTrashUseCase } from "@/lib/server/application/use-cases/purge-expired-trash";
+import { UploadLibraryBookCoverUseCase } from "@/lib/server/application/use-cases/upload-library-book-cover";
+import { ImportLibraryBookCoverUseCase } from "@/lib/server/application/use-cases/import-library-book-cover";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -156,3 +161,6 @@ export const moveLibraryBookToTrashUseCase = new MoveLibraryBookToTrashUseCase(b
 export const restoreLibraryBookUseCase = new RestoreLibraryBookUseCase(bookRepository);
 export const deleteTrashedLibraryBookUseCase = new DeleteTrashedLibraryBookUseCase(bookRepository, storage);
 export const purgeExpiredTrashUseCase = new PurgeExpiredTrashUseCase(bookRepository, storage);
+
+export const uploadLibraryBookCoverUseCase = new UploadLibraryBookCoverUseCase(bookRepository, storage);
+export const importLibraryBookCoverUseCase = new ImportLibraryBookCoverUseCase(bookRepository, storage);
