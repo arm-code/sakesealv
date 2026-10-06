@@ -5,20 +5,19 @@
 // progress-history, rating, state, autosave del lector web), papelera
 // (listar/mover/restaurar/borrar permanente + purga de expirados), portadas
 // upload/import (subir una imagen propia o importar desde una URL externa),
-// y de metadata providers: núcleo (los 4 proveedores — Google Books/
-// OpenLibrary/ISBNdb/Hardcover-metadata — + agregador/ranking + búsqueda de
-// candidatos), edición manual de metadata, y refetch automático (rellena
-// solo campos vacíos, nunca sobreescribe title/author) están wireados. El
+// y el dominio completo de metadata providers (3j-3m: núcleo — los 4
+// proveedores + agregador/ranking + búsqueda de candidatos —, edición
+// manual, refetch automático, y aplicar candidato) están wireados. El
 // sync de progreso de dispositivos KOReader (PutProgress/GetProgress)
 // sigue fuera a propósito — necesita un mecanismo de auth dual (sesión o
 // API key de dispositivo) ligado al device-pairing todavía sin portar
 // (CreateDeviceApiKeyUseCase). `purgeExpiredTrashUseCase` está wireado
 // pero sin ruta ni cron — en el original se dispara desde hooks.server.ts
 // por intervalo, mismo hueco de arquitectura que el sync del plugin
-// (3c)/Hardcover. De metadata providers sigue fuera: aplicar candidato
-// (3m — ApplyMetadataCandidateUseCase, huérfano en el original, sin ruta
-// HTTP; decisión tomada: se porta y se inventa una ruta en 3m). Tampoco se
-// tocó "search providers" (Anna's Archive/Gutenberg/OpenLibrary-search/
+// (3c)/Hardcover. `applyMetadataCandidateUseCase` (3m) se invoca desde una
+// ruta HTTP nueva inventada (POST /api/library/[id]/metadata/apply) — el
+// use-case original estaba huérfano, sin ruta en sake/. Tampoco se tocó
+// "search providers" (Anna's Archive/Gutenberg/OpenLibrary-search/
 // Z-Library-search) — es un subsistema aparte para *buscar libros para
 // descargar*, pertenece a la adquisición Z-Library real, no a metadata
 // providers. Cuando se migren más features, extender este archivo (igual
@@ -95,6 +94,7 @@ import { SearchMetadataCandidatesUseCase } from "@/lib/server/application/use-ca
 import { UpdateLibraryBookMetadataUseCase } from "@/lib/server/application/use-cases/update-library-book-metadata";
 import { ExternalBookMetadataService } from "@/lib/server/application/services/external-book-metadata-service";
 import { RefetchLibraryBookMetadataUseCase } from "@/lib/server/application/use-cases/refetch-library-book-metadata";
+import { ApplyMetadataCandidateUseCase } from "@/lib/server/application/use-cases/apply-metadata-candidate";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -203,3 +203,10 @@ export const updateLibraryBookMetadataUseCase = new UpdateLibraryBookMetadataUse
 // con providers vacíos.
 export const externalBookMetadataService = new ExternalBookMetadataService(activatedMetadataAggregator);
 export const refetchLibraryBookMetadataUseCase = new RefetchLibraryBookMetadataUseCase(bookRepository, externalBookMetadataService);
+
+// Fase 3m: aplicar candidato — huérfano en el original (ver sección "Fase
+// 3j" del handoff), portado igual e invocado desde una ruta nueva
+// inventada (POST /api/library/[id]/metadata/apply). Usa
+// storeManagedBookCoverFromExternalUrl (3i) directo, no necesita nada de
+// Z-Library/mirrors.
+export const applyMetadataCandidateUseCase = new ApplyMetadataCandidateUseCase(bookRepository, storage);
