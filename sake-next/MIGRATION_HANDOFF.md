@@ -34,7 +34,7 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3i — library/books: **portadas upload/import** (subir una imagen propia desde el EPUB o importar desde una URL externa), verificado backend-only contra S3 real, incluyendo validación de magic bytes y limpieza de portadas viejas al reemplazar. El flujo de importar portada al aplicar un candidato de metadata de búsqueda (Z-Library/mirrors/credenciales) quedó **fuera a propósito** — pertenece a metadata providers (3j+).
    - ✅ 3j — metadata providers: **núcleo** (los 4 proveedores — Google Books/OpenLibrary/ISBNdb/Hardcover-metadata — + agregador/ranking + búsqueda de candidatos), verificado backend-only contra APIs externas reales (OpenLibrary/Google Books sin API key). Sesión de scoping dedicada — ver sección "Fase 3j" para el troceo real del dominio de metadata providers (distinto de lo estimado en 3f).
    - ✅ 3k — metadata providers: edición manual de metadata (`UpdateLibraryBookMetadataUseCase`, sin providers externos, reusa piezas de 3h/3i), verificado backend-only incluyendo limpieza real de portada en S3.
-   - ⬜ 3l — metadata providers: refetch automático (`ExternalBookMetadataService` + `RefetchLibraryBookMetadataUseCase`), depende de 3j.
+   - ✅ 3l — metadata providers: refetch automático (`ExternalBookMetadataService` + `RefetchLibraryBookMetadataUseCase`), verificado contra OpenLibrary real (relleno de campos faltantes + idempotencia confirmada).
    - ⬜ 3m — metadata providers: aplicar candidato (`ApplyMetadataCandidateUseCase`) — **huérfano en el original** (sin ruta HTTP ni UI que lo invoque), decisión ya tomada con el usuario: portarlo e inventar la ruta HTTP (Fase 4 lo va a necesitar). Depende de 3j.
    - ⬜ — **"search providers" (hallazgo de 3j, NO es metadata providers)**: Anna's Archive/Gutenberg/OpenLibrary-search/Z-Library-search (~1,502 líneas) — subsistema aparte para *encontrar libros para descargar*, pertenece a la mini-fase de adquisición Z-Library real (search/download/login), no a metadata providers.
    - ⬜ — resto de library/books: adquisición Z-Library real (search/download/login), sync de progreso de dispositivos KOReader (ligado a device-pairing). Después de eso: OPDS, DAV, annotations, queue, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
@@ -1457,6 +1457,79 @@ anteriores de library/books.
 
 ---
 
+## Fase 3l — Detalle de lo hecho (COMPLETA)
+
+**Refetch automático — depende de 3j, tal como se estimó.** A diferencia
+de 3k (edición manual, explícita), esta pieza enriquece un libro existente
+buscando por `title`/`author` en los providers activados y **solo rellena
+los campos que están vacíos** (`keepOrFillText`/`keepOrFillNumber`/
+`keepOrFillPages`) — nunca sobreescribe un valor que el usuario ya tiene.
+Dato importante confirmado leyendo el código: `title`/`author` se
+mantienen **siempre** del libro existente (nunca se reemplazan con lo que
+devuelva el provider) — son la clave de búsqueda, no un campo a enriquecer.
+
+### `ExternalBookMetadataService`: un segundo consumidor del agregador de 3j
+A diferencia de `SearchMetadataCandidatesUseCase` (3j, devuelve candidatos
+crudos sin fusionar), este servicio toma el resultado del mismo
+`MetadataAggregatorService` y colapsa los candidatos de los 3 providers
+("mejor" Google Books/OpenLibrary/Hardcover) en un único objeto de
+metadata fusionada (`pickFirst` por campo). En `composition.ts` se
+instancia pasándole `activatedMetadataAggregator` (la misma instancia real
+de 3j, con los providers activados de verdad) — el constructor del
+original acepta un agregador opcional y cae a uno vacío si no se pasa
+nada; eso solo aplica como fallback de test, no en producción.
+
+### Archivos creados
+- `src/lib/server/application/services/external-book-metadata-service.ts`
+  — `ExternalBookMetadataService`, verbatim.
+- `src/lib/server/application/use-cases/refetch-library-book-metadata.ts`
+  — `RefetchLibraryBookMetadataUseCase`, verbatim (incluye
+  `mergePublicationDate`, que solo usa mes/día del provider si el año
+  coincide con el que ya tenía el libro — evita mezclar fecha parcial de
+  fuentes distintas).
+- 1 ruta con `requireSession()`: `/api/library/[id]/refetch-metadata`
+  (POST).
+- `composition.ts` — `externalBookMetadataService`/
+  `refetchLibraryBookMetadataUseCase` wireados.
+
+### Verificación
+`bun run build` limpio (42 rutas API en total). Backend-only, mismo
+patrón que fases anteriores. **Nota operativa real de esta sesión**: antes
+de levantar el servidor, `netstat` mostró un `node.exe` ya escuchando en
+el puerto 3000 que no era el que yo había arrancado (ni el de la sesión
+anterior, que ya se había confirmado cerrado) — se mató sin indagar más
+(dev-server viejo de alguna sesión previa) y se repitió la verificación
+limpia. Sirve como recordatorio de que el chequeo de puerto libre antes de
+arrancar sigue siendo necesario en cada sesión, no solo "la primera vez
+que pasó".
+
+Script desechable (`_seed-dune-3l.ts`, borrado al terminar) insertó un
+libro real con `title: "Dune"`/`author: "Frank Herbert"` y el resto de
+metadata vacía (id 5) — a diferencia de otras fases, aquí hacía falta un
+libro con datos *reales* buscables, no un título de prueba sin sentido.
+Contra el build de producción real (`bun run start`) con `curl` y sesión
+real:
+- Sin sesión → 401; id inválido → 400; libro inexistente (999) → 404.
+- **Refetch real contra OpenLibrary**: con el libro vacío, devolvió
+  `publisher: "Dom Wydawniczy REBIS Sp. z o.o."`, `identifier:
+  "9780441013593"`, `pages: 608`, `openLibraryKey: "/works/OL893414W"`,
+  `externalRating: 4.3049326`/`externalRatingCount: 446`, y una portada
+  real de `covers.openlibrary.org` — **todos campos reales**, mismos
+  valores que ya habían aparecido en la verificación de `/api/metadata/search`
+  en 3j (mismo candidato real de OpenLibrary). `title`/`author` quedaron
+  exactamente igual que antes del refetch.
+- **Idempotencia confirmada**: un segundo refetch sobre el mismo libro ya
+  enriquecido devolvió exactamente los mismos valores — `keepOrFillText`/
+  `keepOrFillNumber` no sobreescriben campos que ya tienen datos, aunque
+  la búsqueda externa se repita.
+- Limpieza: libro de prueba trasheado + borrado permanente (reusando 3h),
+  confirmado `404` en `detail` después.
+
+No se tocó `/library` ni se montó ninguna UI — mismo criterio que fases
+anteriores de library/books.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -1473,11 +1546,12 @@ Pega esto al iniciar:
 > propia desde el EPUB o importar desde una URL externa), y de metadata
 > providers ya están **3j — núcleo** (los 4 proveedores Google Books/
 > OpenLibrary/ISBNdb/Hardcover-metadata + agregador/ranking + búsqueda de
-> candidatos, verificado contra APIs externas reales) y **3k — edición
-> manual de metadata** (sin providers externos, reusa piezas de 3h/3i).
-> Con el App pane, el Settings modal quedó 100% real salvo Hardcover
-> (bloqueado, ver abajo) y el login real de Z-Library (mockeado a
-> propósito, Fase 2d).
+> candidatos, verificado contra APIs externas reales), **3k — edición
+> manual de metadata** (sin providers externos, reusa piezas de 3h/3i) y
+> **3l — refetch automático** (rellena solo campos vacíos, verificado
+> contra OpenLibrary real con idempotencia confirmada). Con el App pane,
+> el Settings modal quedó 100% real salvo Hardcover (bloqueado, ver abajo)
+> y el login real de Z-Library (mockeado a propósito, Fase 2d).
 > Notas importantes ya resueltas (secciones "Fase 3a-3i — Detalle de lo
 > hecho"): en Next 16 el archivo se llama `proxy.ts`, no `middleware.ts` —
 > de momento NO hay `proxy.ts`, la auth se resuelve por-ruta vía
@@ -1559,21 +1633,21 @@ Pega esto al iniciar:
 > para *buscar libros nuevos para descargar* — esto es parte de la
 > adquisición Z-Library real, no de metadata providers). Lee la sección
 > "Fase 3j — Detalle de lo hecho" para el troceo completo. Troceo
-> confirmado: 3j núcleo (hecho — los 4 providers + agregador + búsqueda de
-> candidatos, verificado contra OpenLibrary/Google Books reales) → 3k
-> edición manual de metadata (hecho — sin providers externos, ver sección
-> "Fase 3k") → 3l refetch automático (depende de 3j) → 3m aplicar
-> candidato (`ApplyMetadataCandidateUseCase` — está **huérfano en el
-> original**, sin ruta HTTP; decisión ya tomada con el usuario: portarlo e
-> inventar la ruta, Fase 4 lo va a necesitar).
+> confirmado: 3j núcleo (hecho) → 3k edición manual de metadata (hecho) →
+> 3l refetch automático (hecho — ver sección "Fase 3l", incluye el dato de
+> que `title`/`author` nunca se sobreescriben, son la clave de búsqueda) →
+> 3m aplicar candidato (`ApplyMetadataCandidateUseCase` — está **huérfano
+> en el original**, sin ruta HTTP; decisión ya tomada con el usuario:
+> portarlo e inventar la ruta, Fase 4 lo va a necesitar).
 >
-> Para lo que sigas ahora: candidatos pendientes son **3l/3m** (resto de
-> metadata providers, chicos y ya acotados — ver tabla en la sección "Fase
-> 3j"), **adquisición Z-Library real** (search/download/login, ahora
-> incluye el subsistema de "search providers" recién descubierto — probable
-> candidata a su propia sesión de scoping dedicada, es grande), o la
-> mini-fase de sync de dispositivos KOReader / la decisión de jobs de fondo
-> si prefieres cerrar esos huecos antes. **No asumas que cabe igual de
+> Para lo que sigas ahora: candidato pendiente es **3m** (la última pieza
+> de metadata providers, ~341 líneas, ya acotada — ver sección "Fase 3j"
+> para el hallazgo del huérfano), **adquisición Z-Library real**
+> (search/download/login, ahora incluye el subsistema de "search
+> providers" descubierto en 3j — probable candidata a su propia sesión de
+> scoping dedicada, es grande), o la mini-fase de sync de dispositivos
+> KOReader / la decisión de jobs de fondo si prefieres cerrar esos huecos
+> antes. **No asumas que cabe igual de
 > chico que se ve** — igual que siempre, lee el código real primero y
 > confirma el tamaño antes de comprometerte. También sigue vigente la
 > decisión de metodología: sin UI de biblioteca real todavía (`/library` es

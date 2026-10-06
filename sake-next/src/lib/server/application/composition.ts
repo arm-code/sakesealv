@@ -7,17 +7,17 @@
 // upload/import (subir una imagen propia o importar desde una URL externa),
 // y de metadata providers: núcleo (los 4 proveedores — Google Books/
 // OpenLibrary/ISBNdb/Hardcover-metadata — + agregador/ranking + búsqueda de
-// candidatos) y edición manual de metadata están wireados. El sync de
-// progreso de dispositivos KOReader (PutProgress/GetProgress) sigue fuera
-// a propósito — necesita un mecanismo de auth dual (sesión o API key de
-// dispositivo) ligado al device-pairing todavía sin portar
+// candidatos), edición manual de metadata, y refetch automático (rellena
+// solo campos vacíos, nunca sobreescribe title/author) están wireados. El
+// sync de progreso de dispositivos KOReader (PutProgress/GetProgress)
+// sigue fuera a propósito — necesita un mecanismo de auth dual (sesión o
+// API key de dispositivo) ligado al device-pairing todavía sin portar
 // (CreateDeviceApiKeyUseCase). `purgeExpiredTrashUseCase` está wireado
 // pero sin ruta ni cron — en el original se dispara desde hooks.server.ts
 // por intervalo, mismo hueco de arquitectura que el sync del plugin
-// (3c)/Hardcover. De metadata providers siguen fuera: refetch automático
-// (3l), y aplicar candidato (3m — ApplyMetadataCandidateUseCase, huérfano
-// en el original, sin ruta HTTP; decisión tomada: se porta y se inventa
-// una ruta en 3m). Tampoco se
+// (3c)/Hardcover. De metadata providers sigue fuera: aplicar candidato
+// (3m — ApplyMetadataCandidateUseCase, huérfano en el original, sin ruta
+// HTTP; decisión tomada: se porta y se inventa una ruta en 3m). Tampoco se
 // tocó "search providers" (Anna's Archive/Gutenberg/OpenLibrary-search/
 // Z-Library-search) — es un subsistema aparte para *buscar libros para
 // descargar*, pertenece a la adquisición Z-Library real, no a metadata
@@ -93,6 +93,8 @@ import { getActivatedMetadataProviders } from "@/lib/server/config/activated-met
 import { MetadataAggregatorService } from "@/lib/server/application/services/metadata-aggregator-service";
 import { SearchMetadataCandidatesUseCase } from "@/lib/server/application/use-cases/search-metadata-candidates";
 import { UpdateLibraryBookMetadataUseCase } from "@/lib/server/application/use-cases/update-library-book-metadata";
+import { ExternalBookMetadataService } from "@/lib/server/application/services/external-book-metadata-service";
+import { RefetchLibraryBookMetadataUseCase } from "@/lib/server/application/use-cases/refetch-library-book-metadata";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -195,3 +197,9 @@ export const searchMetadataCandidatesUseCase = new SearchMetadataCandidatesUseCa
 // Fase 3k: edición manual de metadata — sin providers externos, reusa
 // deleteManagedBookCoversForStorageKey (3h) directo sobre storage.
 export const updateLibraryBookMetadataUseCase = new UpdateLibraryBookMetadataUseCase(bookRepository, storage);
+
+// Fase 3l: refetch automático — reusa el agregador real de 3j
+// (activatedMetadataAggregator) en vez de un ExternalBookMetadataService
+// con providers vacíos.
+export const externalBookMetadataService = new ExternalBookMetadataService(activatedMetadataAggregator);
+export const refetchLibraryBookMetadataUseCase = new RefetchLibraryBookMetadataUseCase(bookRepository, externalBookMetadataService);
