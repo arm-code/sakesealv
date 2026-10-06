@@ -1,23 +1,29 @@
-// Composition root — Fase 3a..3i: auth local, shelves, Account/Devices (API
+// Composition root — Fase 3a..3j: auth local, shelves, Account/Devices (API
 // keys, logout-all, basic auth password, devices), el Plugin pane, los
 // mirrors de Z-Library, el App pane, el núcleo de library/books (listar/ver
 // detalle/leer EPUB/portada/asignar a estantes), progreso/rating (ratings,
 // progress-history, rating, state, autosave del lector web), papelera
-// (listar/mover/restaurar/borrar permanente + purga de expirados), y ahora
-// portadas upload/import (subir una imagen propia o importar desde una URL
-// externa) están wireados. El sync de progreso de dispositivos KOReader
+// (listar/mover/restaurar/borrar permanente + purga de expirados), portadas
+// upload/import (subir una imagen propia o importar desde una URL externa),
+// y ahora metadata providers: núcleo (los 4 proveedores — Google Books/
+// OpenLibrary/ISBNdb/Hardcover-metadata — + agregador/ranking + búsqueda de
+// candidatos) están wireados. El sync de progreso de dispositivos KOReader
 // (PutProgress/GetProgress) sigue fuera a propósito — necesita un mecanismo
 // de auth dual (sesión o API key de dispositivo) ligado al device-pairing
 // todavía sin portar (CreateDeviceApiKeyUseCase). `purgeExpiredTrashUseCase`
 // está wireado pero sin ruta ni cron — en el original se dispara desde
 // hooks.server.ts por intervalo, mismo hueco de arquitectura que el sync
-// del plugin (3c)/Hardcover. El flujo de importar portada al aplicar un
-// candidato de metadata de búsqueda (storeFromSearchImport, con mirrors de
-// Z-Library/credenciales) sigue fuera — pertenece a metadata providers
-// (3j+). Cuando se migren más features, extender este archivo (igual que
-// el original `composition.ts` barrel, pero sin arrastrar subsistemas que
-// aún no existen en sake-next: metadata providers, adquisición Z-Library,
-// annotations, sync de dispositivos...).
+// del plugin (3c)/Hardcover. De metadata providers siguen fuera: edición
+// manual de metadata (3k), refetch automático (3l), y aplicar candidato
+// (3m — ApplyMetadataCandidateUseCase, huérfano en el original, sin ruta
+// HTTP; decisión tomada: se porta y se inventa una ruta en 3m). Tampoco se
+// tocó "search providers" (Anna's Archive/Gutenberg/OpenLibrary-search/
+// Z-Library-search) — es un subsistema aparte para *buscar libros para
+// descargar*, pertenece a la adquisición Z-Library real, no a metadata
+// providers. Cuando se migren más features, extender este archivo (igual
+// que el original `composition.ts` barrel, pero sin arrastrar subsistemas
+// que aún no existen en sake-next: search providers, adquisición
+// Z-Library, annotations, sync de dispositivos...).
 import { UserRepository } from "@/lib/server/infrastructure/repositories/user-repository";
 import { UserSessionRepository } from "@/lib/server/infrastructure/repositories/user-session-repository";
 import { UserApiKeyRepository } from "@/lib/server/infrastructure/repositories/user-api-key-repository";
@@ -81,6 +87,10 @@ import { DeleteTrashedLibraryBookUseCase } from "@/lib/server/application/use-ca
 import { PurgeExpiredTrashUseCase } from "@/lib/server/application/use-cases/purge-expired-trash";
 import { UploadLibraryBookCoverUseCase } from "@/lib/server/application/use-cases/upload-library-book-cover";
 import { ImportLibraryBookCoverUseCase } from "@/lib/server/application/use-cases/import-library-book-cover";
+import { createMetadataProviders } from "@/lib/server/infrastructure/metadata-providers/metadata-provider-factory";
+import { getActivatedMetadataProviders } from "@/lib/server/config/activated-metadata-providers";
+import { MetadataAggregatorService } from "@/lib/server/application/services/metadata-aggregator-service";
+import { SearchMetadataCandidatesUseCase } from "@/lib/server/application/use-cases/search-metadata-candidates";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -164,3 +174,18 @@ export const purgeExpiredTrashUseCase = new PurgeExpiredTrashUseCase(bookReposit
 
 export const uploadLibraryBookCoverUseCase = new UploadLibraryBookCoverUseCase(bookRepository, storage);
 export const importLibraryBookCoverUseCase = new ImportLibraryBookCoverUseCase(bookRepository, storage);
+
+// Fase 3j: los 4 proveedores de metadata (Google Books/OpenLibrary/ISBNdb/
+// Hardcover-metadata) + el agregador/ranking + la búsqueda de candidatos.
+// Deliberadamente NO incluye "search providers" (Anna's Archive/Gutenberg/
+// OpenLibrary-search/Z-Library-search, ~1,502 líneas) — ese es un subsistema
+// aparte para *encontrar libros para descargar*, pertenece a la mini-fase de
+// adquisición, no a esta. Tampoco incluye ApplyMetadataCandidateUseCase
+// (huérfano en el original, decisión pendiente para 3m) ni
+// RefetchLibraryBookMetadataUseCase/UpdateLibraryBookMetadataUseCase (3l/3k).
+export const activatedMetadataProviders = createMetadataProviders(getActivatedMetadataProviders(), {
+  googleBooksApiKey: process.env.GOOGLE_BOOKS_API_KEY,
+  isbnDbApiKey: process.env.ISBNDB_API_KEY,
+});
+export const activatedMetadataAggregator = new MetadataAggregatorService(activatedMetadataProviders);
+export const searchMetadataCandidatesUseCase = new SearchMetadataCandidatesUseCase(activatedMetadataAggregator, bookRepository);
