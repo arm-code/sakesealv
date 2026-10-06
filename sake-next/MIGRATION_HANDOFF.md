@@ -33,7 +33,7 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3h — library/books: **papelera** (listar/mover a la papelera/restaurar/borrar permanente + purga de expirados), verificado backend-only, incluyendo limpieza real de S3 (archivo principal, progreso, portadas). `PurgeExpiredTrashUseCase` quedó wireado en `composition.ts` pero **sin ruta ni cron** — ver sección "Fase 3h" para el motivo (mismo hueco de arquitectura que el sync del plugin/Hardcover).
    - ✅ 3i — library/books: **portadas upload/import** (subir una imagen propia desde el EPUB o importar desde una URL externa), verificado backend-only contra S3 real, incluyendo validación de magic bytes y limpieza de portadas viejas al reemplazar. El flujo de importar portada al aplicar un candidato de metadata de búsqueda (Z-Library/mirrors/credenciales) quedó **fuera a propósito** — pertenece a metadata providers (3j+).
    - ✅ 3j — metadata providers: **núcleo** (los 4 proveedores — Google Books/OpenLibrary/ISBNdb/Hardcover-metadata — + agregador/ranking + búsqueda de candidatos), verificado backend-only contra APIs externas reales (OpenLibrary/Google Books sin API key). Sesión de scoping dedicada — ver sección "Fase 3j" para el troceo real del dominio de metadata providers (distinto de lo estimado en 3f).
-   - ⬜ 3k — metadata providers: edición manual de metadata (`UpdateLibraryBookMetadataUseCase`, sin providers externos, reusa piezas de 3h/3i).
+   - ✅ 3k — metadata providers: edición manual de metadata (`UpdateLibraryBookMetadataUseCase`, sin providers externos, reusa piezas de 3h/3i), verificado backend-only incluyendo limpieza real de portada en S3.
    - ⬜ 3l — metadata providers: refetch automático (`ExternalBookMetadataService` + `RefetchLibraryBookMetadataUseCase`), depende de 3j.
    - ⬜ 3m — metadata providers: aplicar candidato (`ApplyMetadataCandidateUseCase`) — **huérfano en el original** (sin ruta HTTP ni UI que lo invoque), decisión ya tomada con el usuario: portarlo e inventar la ruta HTTP (Fase 4 lo va a necesitar). Depende de 3j.
    - ⬜ — **"search providers" (hallazgo de 3j, NO es metadata providers)**: Anna's Archive/Gutenberg/OpenLibrary-search/Z-Library-search (~1,502 líneas) — subsistema aparte para *encontrar libros para descargar*, pertenece a la mini-fase de adquisición Z-Library real (search/download/login), no a metadata providers.
@@ -1401,6 +1401,62 @@ anteriores de library/books.
 
 ---
 
+## Fase 3k — Detalle de lo hecho (COMPLETA)
+
+**La más chica del dominio de metadata providers, tal como se estimó en
+3j: sin providers externos en absoluto.** `UpdateLibraryBookMetadataUseCase`
+es edición manual directa — el usuario escribe los campos en un
+formulario y se guardan tal cual, sin tocar ningún proveedor. Confirmado
+leyendo el código: reescribe la fila completa de metadata (como
+`updateMetadata` desde 3i) y, si el cover deja de ser una URL gestionada
+(`isManagedBookCoverUrl`, 3i) borra las portadas gestionadas viejas de S3
+(`deleteManagedBookCoversForStorageKey`, 3h). **Cero piezas nuevas de
+infraestructura** — todo lo que necesita ya estaba portado.
+
+### Archivos creados
+- `src/lib/server/http/library-metadata-update.ts` —
+  `parseLibraryMetadataUpdateInput`/`LibraryMetadataUpdateInput`, puerto
+  verbatim del parser/validador del body (allowlist de 20 campos,
+  validación de tipos/rangos, chequeo de fecha de publicación si vienen
+  year+month+day juntos).
+- `src/lib/server/application/use-cases/update-library-book-metadata.ts` —
+  `UpdateLibraryBookMetadataUseCase`, puerto 1:1 — toma `storage:
+  StoragePort` inyectado directo (en vez de un
+  `Pick<ManagedBookCoverService, 'deleteForBookStorageKey'>` como el
+  original), mismo patrón que el resto de use-cases de 3f-3j en
+  `sake-next`.
+- 1 ruta con `requireSession()`: `/api/library/[id]/metadata` (PUT).
+- `composition.ts` — `updateLibraryBookMetadataUseCase` wireado
+  (reutilizando `bookRepository`/`storage`).
+
+### Verificación
+`bun run build` limpio (41 rutas API en total). Backend-only, mismo
+patrón que fases anteriores: puerto 3000 verificado libre,
+`sake-seaweedfs` reutilizado. Reutilizó la sesión real creada en 3j (sigue
+vigente, expira a las 24h) y el libro de prueba de 3f (id 1). Contra el
+build de producción real (`bun run start`) con `curl`:
+- Sin sesión → 401; id inválido → 400; libro inexistente (999) → 404;
+  campo desconocido en el body → 400 ("Unknown field: ..."); JSON
+  inválido → 400; `title` vacío/solo espacios → 400; `month: 13` → 400
+  ("month must be at most 12").
+- Update real (`publisher`/`series`/`seriesIndex`/`pages`/fecha completa)
+  → 200, y `GET .../detail` lo refleja exacto, con `title`/`author`/
+  `progressPercent`/`rating`/`shelfIds` (de 3f/3g) intactos — confirma que
+  es un patch selectivo sobre los campos enviados, no una sobreescritura
+  ciega.
+- **Limpieza real de portada en S3**: subió una portada real al libro
+  (reusando el endpoint de 3i), confirmó el objeto real en el bucket
+  (`storage.list`), hizo `PUT .../metadata` con `cover: null`, y
+  `storage.list` volvió a dar `[]` — confirma que
+  `deleteManagedBookCoversForStorageKey` se dispara de verdad desde esta
+  ruta, no solo desde trash/upload. Libro de prueba revertido a su estado
+  original (sin cover, sin los campos de prueba) al terminar.
+
+No se tocó `/library` ni se montó ninguna UI — mismo criterio que fases
+anteriores de library/books.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -1414,12 +1470,14 @@ Pega esto al iniciar:
 > progreso, rating, isRead/archived/excludeFromNewBooks, autosave del
 > lector web —, **papelera** — listar/mover/restaurar/borrar permanente +
 > purga de expirados —, **portadas upload/import** — subir una imagen
-> propia desde el EPUB o importar desde una URL externa), y ahora **3j —
-> metadata providers: núcleo** (los 4 proveedores Google Books/OpenLibrary/
-> ISBNdb/Hardcover-metadata + agregador/ranking + búsqueda de candidatos,
-> verificado contra APIs externas reales). Con el App pane, el Settings
-> modal quedó 100% real salvo Hardcover (bloqueado, ver abajo) y el login
-> real de Z-Library (mockeado a propósito, Fase 2d).
+> propia desde el EPUB o importar desde una URL externa), y de metadata
+> providers ya están **3j — núcleo** (los 4 proveedores Google Books/
+> OpenLibrary/ISBNdb/Hardcover-metadata + agregador/ranking + búsqueda de
+> candidatos, verificado contra APIs externas reales) y **3k — edición
+> manual de metadata** (sin providers externos, reusa piezas de 3h/3i).
+> Con el App pane, el Settings modal quedó 100% real salvo Hardcover
+> (bloqueado, ver abajo) y el login real de Z-Library (mockeado a
+> propósito, Fase 2d).
 > Notas importantes ya resueltas (secciones "Fase 3a-3i — Detalle de lo
 > hecho"): en Next 16 el archivo se llama `proxy.ts`, no `middleware.ts` —
 > de momento NO hay `proxy.ts`, la auth se resuelve por-ruta vía
@@ -1503,13 +1561,13 @@ Pega esto al iniciar:
 > "Fase 3j — Detalle de lo hecho" para el troceo completo. Troceo
 > confirmado: 3j núcleo (hecho — los 4 providers + agregador + búsqueda de
 > candidatos, verificado contra OpenLibrary/Google Books reales) → 3k
-> edición manual de metadata (sin providers externos, puede hacerse en
-> cualquier momento) → 3l refetch automático (depende de 3j) → 3m aplicar
+> edición manual de metadata (hecho — sin providers externos, ver sección
+> "Fase 3k") → 3l refetch automático (depende de 3j) → 3m aplicar
 > candidato (`ApplyMetadataCandidateUseCase` — está **huérfano en el
 > original**, sin ruta HTTP; decisión ya tomada con el usuario: portarlo e
 > inventar la ruta, Fase 4 lo va a necesitar).
 >
-> Para lo que sigas ahora: candidatos pendientes son **3k/3l/3m** (resto de
+> Para lo que sigas ahora: candidatos pendientes son **3l/3m** (resto de
 > metadata providers, chicos y ya acotados — ver tabla en la sección "Fase
 > 3j"), **adquisición Z-Library real** (search/download/login, ahora
 > incluye el subsistema de "search providers" recién descubierto — probable

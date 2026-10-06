@@ -5,18 +5,19 @@
 // progress-history, rating, state, autosave del lector web), papelera
 // (listar/mover/restaurar/borrar permanente + purga de expirados), portadas
 // upload/import (subir una imagen propia o importar desde una URL externa),
-// y ahora metadata providers: núcleo (los 4 proveedores — Google Books/
+// y de metadata providers: núcleo (los 4 proveedores — Google Books/
 // OpenLibrary/ISBNdb/Hardcover-metadata — + agregador/ranking + búsqueda de
-// candidatos) están wireados. El sync de progreso de dispositivos KOReader
-// (PutProgress/GetProgress) sigue fuera a propósito — necesita un mecanismo
-// de auth dual (sesión o API key de dispositivo) ligado al device-pairing
-// todavía sin portar (CreateDeviceApiKeyUseCase). `purgeExpiredTrashUseCase`
-// está wireado pero sin ruta ni cron — en el original se dispara desde
-// hooks.server.ts por intervalo, mismo hueco de arquitectura que el sync
-// del plugin (3c)/Hardcover. De metadata providers siguen fuera: edición
-// manual de metadata (3k), refetch automático (3l), y aplicar candidato
-// (3m — ApplyMetadataCandidateUseCase, huérfano en el original, sin ruta
-// HTTP; decisión tomada: se porta y se inventa una ruta en 3m). Tampoco se
+// candidatos) y edición manual de metadata están wireados. El sync de
+// progreso de dispositivos KOReader (PutProgress/GetProgress) sigue fuera
+// a propósito — necesita un mecanismo de auth dual (sesión o API key de
+// dispositivo) ligado al device-pairing todavía sin portar
+// (CreateDeviceApiKeyUseCase). `purgeExpiredTrashUseCase` está wireado
+// pero sin ruta ni cron — en el original se dispara desde hooks.server.ts
+// por intervalo, mismo hueco de arquitectura que el sync del plugin
+// (3c)/Hardcover. De metadata providers siguen fuera: refetch automático
+// (3l), y aplicar candidato (3m — ApplyMetadataCandidateUseCase, huérfano
+// en el original, sin ruta HTTP; decisión tomada: se porta y se inventa
+// una ruta en 3m). Tampoco se
 // tocó "search providers" (Anna's Archive/Gutenberg/OpenLibrary-search/
 // Z-Library-search) — es un subsistema aparte para *buscar libros para
 // descargar*, pertenece a la adquisición Z-Library real, no a metadata
@@ -91,6 +92,7 @@ import { createMetadataProviders } from "@/lib/server/infrastructure/metadata-pr
 import { getActivatedMetadataProviders } from "@/lib/server/config/activated-metadata-providers";
 import { MetadataAggregatorService } from "@/lib/server/application/services/metadata-aggregator-service";
 import { SearchMetadataCandidatesUseCase } from "@/lib/server/application/use-cases/search-metadata-candidates";
+import { UpdateLibraryBookMetadataUseCase } from "@/lib/server/application/use-cases/update-library-book-metadata";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -189,3 +191,7 @@ export const activatedMetadataProviders = createMetadataProviders(getActivatedMe
 });
 export const activatedMetadataAggregator = new MetadataAggregatorService(activatedMetadataProviders);
 export const searchMetadataCandidatesUseCase = new SearchMetadataCandidatesUseCase(activatedMetadataAggregator, bookRepository);
+
+// Fase 3k: edición manual de metadata — sin providers externos, reusa
+// deleteManagedBookCoversForStorageKey (3h) directo sobre storage.
+export const updateLibraryBookMetadataUseCase = new UpdateLibraryBookMetadataUseCase(bookRepository, storage);
