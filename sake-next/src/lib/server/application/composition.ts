@@ -101,6 +101,10 @@ import {
   ZLibraryPasswordLoginUseCase,
   ZLibraryTokenLoginUseCase,
 } from "@/lib/server/application/use-cases/zlibrary-auth";
+import { createSearchProviders } from "@/lib/server/infrastructure/search-providers/search-provider-factory";
+import { getActivatedSearchProviders } from "@/lib/server/config/activated-search-providers";
+import { SearchBooksUseCase } from "@/lib/server/application/use-cases/search-books";
+import { LookupSearchBookMetadataUseCase } from "@/lib/server/application/use-cases/lookup-search-book-metadata";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -219,11 +223,18 @@ export const applyMetadataCandidateUseCase = new ApplyMetadataCandidateUseCase(b
 
 // Fase 3n: login real de Z-Library (reemplaza el submit mock de la Fase 2d).
 // zlibraryClient reusa zlibraryMirrorSettingsRepository (3d) como fuente de
-// mirrors en vez de una URL fija, igual que el original. search()/download()
-// ya están portados en el cliente (verbatim, la clase no se puede partir sin
-// duplicar tryMirrors/requestApi/getHeaders) pero sin use-case ni ruta que
-// los invoque todavía — eso es la mini-fase de búsqueda/descarga (3o+).
+// mirrors en vez de una URL fija, igual que el original.
 export const zlibraryClient = new ZLibraryClient(() => zlibraryMirrorSettingsRepository.get());
 export const zlibraryTokenLoginUseCase = new ZLibraryTokenLoginUseCase(zlibraryClient);
 export const zlibraryPasswordLoginUseCase = new ZLibraryPasswordLoginUseCase(zlibraryClient);
 export const zlibraryLogoutUseCase = new ZLibraryLogoutUseCase();
+
+// Fase 3o: pieza B del troceo de adquisición Z-Library — búsqueda
+// multi-provider (sin descarga/importación todavía, eso es la pieza C).
+// `activeSearchProviderInstances` solo instancia los providers activados por
+// ACTIVATED_PROVIDERS (igual que ACTIVATED_METADATA_PROVIDERS en 3j); el
+// provider de Z-Library reusa el mismo `zlibraryClient` de 3n.
+export const activeSearchProviders = getActivatedSearchProviders();
+export const activeSearchProviderInstances = createSearchProviders(activeSearchProviders, { zlibrary: zlibraryClient });
+export const searchBooksUseCase = new SearchBooksUseCase(activeSearchProviderInstances, activeSearchProviders);
+export const lookupSearchBookMetadataUseCase = new LookupSearchBookMetadataUseCase(externalBookMetadataService);

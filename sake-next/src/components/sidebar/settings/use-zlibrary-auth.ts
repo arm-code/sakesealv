@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { ZLIBRARY_AUTH_CLEARED_EVENT_NAME } from "@/lib/auth-response-signals";
 import { ZLibraryAuthApi } from "@/lib/client/zlibrary-auth-api";
 import { errorMessage } from "@/lib/client/api-client";
 
@@ -12,18 +13,30 @@ export function useZlibraryAuth() {
   const [zlibName, setZlibName] = useState("");
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
+  const clearName = useCallback((): void => {
+    localStorage.removeItem(ZLIBRARY_NAME_STORAGE_KEY);
+    setZlibName("");
+  }, []);
+
   useEffect(() => {
     setZlibName(localStorage.getItem(ZLIBRARY_NAME_STORAGE_KEY) ?? "");
-  }, []);
+
+    // Un provider de search (p.ej. Z-Library en /api/search) puede detectar que
+    // la sesion de Z-Library ya no es valida (401/403 real del upstream) y
+    // pedirle al servidor que limpie las cookies — ese 401/403 llega con el
+    // header x-sake-clear-zlibrary-auth, que dispara este evento (ver
+    // apply-auth-response-signals.ts). Reaccionamos limpiando el estado local
+    // tambien, igual que hacia +layout.svelte en el original.
+    function handleAuthCleared(): void {
+      clearName();
+    }
+    window.addEventListener(ZLIBRARY_AUTH_CLEARED_EVENT_NAME, handleAuthCleared);
+    return () => window.removeEventListener(ZLIBRARY_AUTH_CLEARED_EVENT_NAME, handleAuthCleared);
+  }, [clearName]);
 
   function storeName(name: string): void {
     localStorage.setItem(ZLIBRARY_NAME_STORAGE_KEY, name);
     setZlibName(name);
-  }
-
-  function clearName(): void {
-    localStorage.removeItem(ZLIBRARY_NAME_STORAGE_KEY);
-    setZlibName("");
   }
 
   async function loginWithPassword(email: string, password: string): Promise<{ ok: true } | { ok: false; error: string }> {

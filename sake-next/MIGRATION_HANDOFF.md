@@ -37,7 +37,7 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3l — metadata providers: refetch automático (`ExternalBookMetadataService` + `RefetchLibraryBookMetadataUseCase`), verificado contra OpenLibrary real (relleno de campos faltantes + idempotencia confirmada).
    - ✅ 3m — metadata providers: aplicar candidato (`ApplyMetadataCandidateUseCase`) — **huérfano en el original** (sin ruta HTTP ni UI que lo invoque), portado y verificado con una ruta HTTP nueva inventada (`POST /api/library/[id]/metadata/apply`). **Con esto el dominio completo de metadata providers (3j-3m) queda cerrado.**
    - ✅ 3n — **adquisición Z-Library: login real** (`ZLibraryClient` + `tokenLogin`/`passwordLogin`/`logout`), reemplaza el submit mock de la Fase 2d. Sesión de scoping dedicada previa (ver sección "Scoping — adquisición Z-Library real") mapeó el dominio completo (~5,100 líneas, no ~1,500 como sugería 3j) y lo trozó en A→E; esta es la pieza A.
-   - ⬜ — **B. Búsqueda multi-provider** (~1,700 líneas: 4 search providers + registry/factory + `SearchBooksUseCase` + lookup de metadata) — depende de A.
+   - ✅ 3o — **adquisición Z-Library: búsqueda multi-provider** (pieza B — `SearchProviderRegistry` + 4 providers: Z-Library/Anna's Archive/Gutenberg/OpenLibrary-search + `SearchBooksUseCase` + `LookupSearchBookMetadataUseCase`), verificado contra las APIs/sitios reales (OpenLibrary real, Anna's Archive bloqueado por anti-bot real pero capturado correctamente como fallo per-provider, Gutenberg inalcanzable desde el entorno de esta sesión). Sin descarga/importación todavía (eso es la pieza C).
    - ⬜ — **C. Descarga/importación directa** (~1,350 líneas: `DownloadBookUseCase`/`DownloadSearchBookUseCase` + `EpubMetadataService` 707 líneas + `LibraryImportCollisionService` + `storeFromSearchImport`, la pieza que 3i dejó fuera a propósito + `BookRepository.create` nuevo) — depende de A+B.
    - ⬜ — **D. Cola de descargas en background** (~900 líneas: `DownloadQueue` + `QueueJobRepository` + use-cases de cola) — depende de A+B+C, y choca con la decisión de arquitectura de jobs de fondo (mismo hueco que plugin sync/Hardcover/trash purge).
    - ⬜ — **E. `/api/library/[title]` GET/PUT/DELETE** (~290 líneas, el mecanismo por el que providers sin API key de servidor suben el archivo) — depende de C.
@@ -1795,6 +1795,180 @@ interfaz.
 
 ---
 
+## Fase 3o — Detalle de lo hecho (COMPLETA)
+
+**Pieza B del troceo de adquisición Z-Library: búsqueda multi-provider**
+(ver sección de scoping). Portados verbatim los 4 search providers
+(`ZLibrarySearchProvider`, `OpenLibrarySearchProvider`,
+`GutenbergSearchProvider`, `AnnaArchiveSearchProvider`) + su infraestructura
+compartida (`SearchProviderPort`/`SearchProviderRegistry`/factory/
+`search-provider-download-utils.ts`) + `SearchBooksUseCase` (agregador
+resiliente: cada provider corre en paralelo, un fallo de uno no tumba a los
+demás) + `LookupSearchBookMetadataUseCase` (reusa `ExternalBookMetadataService`
+ya wireado en 3l). Dos rutas: `/api/search` (POST, multi-provider) y
+`/api/zlibrary/search/metadata` (POST, lookup de metadata para un resultado
+de búsqueda).
+
+### Hallazgo: `/api/zlibrary/search` (el endpoint, no el de metadata) está deprecado en el original — no se portó
+Al leer el código real se encontró `ZLibrarySearchUseCase` (25 líneas) +
+`/api/zlibrary/search/+server.ts`, una ruta **separada** de `/api/search`
+que solo busca en Z-Library. El propio handler original la marca
+explícitamente como deprecada: loguea
+`zlibrary.search.deprecated_endpoint_used`, responde con headers
+`Deprecation: true` y `Link: </api/search>; rel="successor-version"`, y
+**ningún código de frontend la llama** (confirmado con grep exhaustivo —
+`searchBooks.ts` del cliente ya pega a `/api/search`). A diferencia de
+`ApplyMetadataCandidateUseCase` (3m, huérfano pero deseado), esto es código
+legacy explícitamente reemplazado por su propio autor. **Decisión: no se
+portó** `ZLibrarySearchUseCase` ni esa ruta — `/api/search` con
+`providers: ["zlibrary"]` ya cubre el mismo caso con el stack real
+(`SearchBooksUseCase` → `ZLibrarySearchProvider` → `zlibraryClient` de 3n).
+
+### Activación opt-in, mismo patrón que metadata providers (3j)
+`ACTIVATED_PROVIDERS` (no `ACTIVATED_SEARCH_PROVIDERS` — así se llama la env
+var en el original) controla qué search providers se instancian; vacío =
+ambas rutas (`/api/search` y `/api/zlibrary/search/metadata`) devuelven 404
+"Search is disabled". En el original este gate vivía centralizado en
+`hooks.server.ts` (`isSearchFeatureApiPath`); en `sake-next` se replicó
+**por ruta** (mismo patrón que `ACTIVATED_METADATA_PROVIDERS` en 3j) en vez
+de portar el chequeo de prefijo de path. `sake-next/.env` quedó con
+`ACTIVATED_PROVIDERS=openlibrary,gutenberg,anna` (zlibrary fuera del
+default — ver verificación abajo, sin cuenta real no aporta nada activado
+por defecto).
+
+### Señal de "sesión de Z-Library murió" (`x-sake-clear-zlibrary-auth`): portada para `/api/search`, adaptada al modelo de hooks de React
+El original tiene un mecanismo de 3 capas para cuando un provider detecta
+que las credenciales de Z-Library ya no sirven (401/403 reales del
+upstream): el servidor limpia las cookies `userId`/`userKey` y añade un
+header de respuesta; un wrapper de fetch compartido
+(`$lib/client/base/authResponseSignals.ts`) lee ese header y dispara un
+`CustomEvent`; el `+layout.svelte` raíz escucha ese evento y resetea
+`zlibName` a vacío. Portado con la misma forma de 3 capas pero adaptado al
+modelo de hooks:
+- `src/lib/auth-response-signals.ts` (nuevo, compartido cliente/servidor) —
+  `SAKE_CLEAR_ZLIBRARY_AUTH_HEADER_NAME`/`ZLIBRARY_AUTH_CLEARED_EVENT_NAME`/
+  `isAuthenticationFailureStatus`. **No** se portó
+  `SAKE_CLEAR_SESSION_HEADER_NAME` (la señal equivalente para sesión de
+  Sake expirada) — nada de lo portado hasta ahora la dispara, se añade
+  cuando haga falta.
+- `src/lib/server/auth/response-signals.ts` —
+  `zlibraryAuthFailureResponse(message, status)`, usa `withResponseHeader`
+  (nuevo en `http/api.ts`, se había dejado fuera en 3a — "no lo usa nada
+  de lo portado hasta ahora", ya hace falta) + `clearZLibraryCookies` (3n).
+- `src/lib/client/apply-auth-response-signals.ts` — a diferencia del
+  original (que también limpia `localStorage` directamente ahí), **solo
+  despacha el evento** — la limpieza de `localStorage`/estado React vive en
+  `use-zlibrary-auth.ts` (único dueño de ese estado), que ahora escucha el
+  evento y llama a su propio `clearName()`. Evita que dos sitios escriban
+  el mismo `localStorage`/estado sin que React se entere de re-renderizar.
+- `src/lib/client/api-client.ts` — `request()` llama
+  `applyAuthResponseSignals(response)` en la rama `!response.ok`, mismo
+  punto que `ApiErrors.fromResponse` en el original.
+- `getZLibraryCredentials()` (añadida sin uso en 3n) por fin se usa: la
+  ruta `/api/search` la llama para construir el `SearchProviderContext`.
+
+### Archivos creados
+- `src/lib/types/search.ts` — `SEARCH_PROVIDER_IDS`/`SearchProviderId`/
+  `SearchProviderCapabilities`/`SearchBooksFilters`/`SearchBooksRequest`/
+  `SearchResultBook`/`SearchProviderFailure`/`SearchBooksResponse`,
+  consolidados en un archivo (igual que `zlibrary.ts` en 3n). **No**
+  incluye `QueueSearchBookRequest`/`QueueableSearchProviderId` — eso es la
+  pieza D (cola).
+- `src/lib/utils/series.ts` (`parseSeriesIndex`/`resolveSeriesIndex`),
+  `isbn.ts` (`extractIsbn`) — verbatim, puros. `resolveSeriesIndex` no lo
+  usa nada todavía en 3o (lo necesita `DownloadBookUseCase`, pieza C) pero
+  es el mismo archivo pequeño que `parseSeriesIndex`, no había razón para
+  partirlo.
+- `src/lib/server/config/activated-search-providers.ts` —
+  `parseActivatedSearchProviders`/`getActivatedSearchProviders`/
+  `isSearchEnabled`, sin `isSearchFeatureApiPath`/`getSearchActivationConfig`
+  (ver arriba).
+- `src/lib/server/application/ports.ts` ganó `SearchProviderContext`/
+  `SearchProviderDownloadInput`/`SearchProviderDownloadResult`/
+  `SearchProviderPort`/`SearchProviderDownloadPort` (sin la función suelta
+  `supportsSearchProviderDownload` del original — no hay función alguna en
+  `ports.ts` hasta ahora, solo interfaces; se añade en la pieza C cuando
+  haga falta).
+- `src/lib/server/application/services/search-provider-registry.ts` —
+  `SearchProviderRegistry`, verbatim.
+- `src/lib/server/infrastructure/search-providers/` (carpeta nueva):
+  `search-provider-download-utils.ts`, `zlibrary-search-provider.ts`,
+  `open-library-search-provider.ts`, `gutenberg-search-provider.ts`,
+  `anna-archive-search-provider.ts`, `search-provider-factory.ts` —
+  verbatim, incluyendo los métodos `download()` de
+  OpenLibrary/Gutenberg/Anna (pertenecen a la pieza C pero viven en la
+  misma clase que `search()`, mismo criterio que `ZLibraryClient` en 3n:
+  no partir una clase cohesiva para no duplicar helpers privados).
+- `src/lib/server/application/use-cases/search-books.ts`,
+  `lookup-search-book-metadata.ts` — verbatim (este último recibe
+  `externalBookMetadataService` real inyectado en `composition.ts`, no el
+  fallback de aggregator vacío del parámetro por defecto — mismo criterio
+  que `RefetchLibraryBookMetadataUseCase` en 3l).
+- `src/lib/server/http/search-books-request.ts` — `parseSearchBooksRequest`,
+  verbatim.
+- `src/lib/auth-response-signals.ts`, `src/lib/server/auth/response-signals.ts`,
+  `src/lib/client/apply-auth-response-signals.ts` — ver sección de arriba.
+- `src/lib/server/http/api.ts` ganó `withResponseHeader`.
+- 2 rutas, ambas con `requireSession()` + gate de `isSearchEnabled()`:
+  `/api/search` (POST), `/api/zlibrary/search/metadata` (POST).
+- `composition.ts` — `activeSearchProviders`/`activeSearchProviderInstances`/
+  `searchBooksUseCase`/`lookupSearchBookMetadataUseCase` wireados
+  (reutilizando `zlibraryClient` de 3n, `externalBookMetadataService` de
+  3l).
+- `use-zlibrary-auth.ts` (3n) ganó el listener del evento de limpieza (ver
+  arriba).
+
+### Verificación
+`bun run build` limpio (48 rutas API en total). Puerto 3000 verificado
+libre, `sake-seaweedfs` reutilizado. Sesión real creada con script
+desechable (`_seed-session-3o.ts`, borrado al terminar) contra el usuario
+`admin`. Contra el build de producción real (`bun run start`) con `curl` y
+sesión real:
+- Sin sesión → 401; con `ACTIVATED_PROVIDERS` sin setear → 404 "Search is
+  disabled" en ambas rutas (confirmado antes de activar nada); `query`
+  faltante → 400; provider desconocido → 400 (`"Unknown providers:
+  madeup"`); JSON inválido → 400.
+- **Búsqueda real contra OpenLibrary** (`ACTIVATED_PROVIDERS` con
+  `openlibrary,gutenberg,anna,zlibrary` activados temporalmente para la
+  verificación): `{"query":"Dune","providers":["openlibrary"]}` → 200 con 3
+  resultados reales (Dune/Dune Messiah/Children of Dune, portadas/ISBNs
+  reales de OpenLibrary) en ~0.4s.
+- **Anna's Archive real**: `annas-archive.gl` respondió 403 (bloqueo
+  anti-bot real del sitio, no un fallo del código) — capturado
+  correctamente en `failedProviders` sin tumbar la request (200 con
+  `books: []` para ese provider). Confirma el aislamiento de fallos por
+  provider funcionando contra un bloqueo real, no simulado.
+- **Z-Library sin cookies de sesión**: `providers: ["zlibrary"]` sin cookies
+  `userId`/`userKey` → capturado como fallo per-provider ("Z-Library login
+  is not valid", 409), sin tumbar la request. Con cookies inválidas puestas
+  a mano (`userId=0; userKey=invalid`) → el provider intenta un
+  `tokenLogin` real contra `z-lib.gl`, que responde 400 (mismo
+  comportamiento ya confirmado en 3n), capturado igual como fallo
+  per-provider.
+- **Los 3 providers juntos** (`openlibrary`+`anna`+`zlibrary`): 200 con los
+  2 resultados reales de OpenLibrary, `fulfilledProviders: ["openlibrary"]`,
+  `failedProviders` con las 2 fallas reales de arriba — confirma el
+  agregador combinando resultados parciales de múltiples providers reales
+  en una sola respuesta.
+- **`LookupSearchBookMetadataUseCase` real**: `{"title":"Dune","author":"Frank
+  Herbert"}` → 200 con los mismos datos reales de OpenLibrary vistos en
+  3j/3l/3m (publisher/pages/rating/portada reales).
+- **Gutenberg no verificado**: `gutendex.com` resultó inalcanzable desde el
+  entorno de esta sesión (timeout tanto a través de la app como con `curl`
+  directo al dominio, 30s) — limitación de red del entorno, no un fallo de
+  código (el provider es un port verbatim sin cambios de lógica). Si se
+  retoma la verificación en otra máquina/entorno con salida a
+  `gutendex.com`, confirmar ahí.
+- Limpieza: `.env` revertido a `ACTIVATED_PROVIDERS=openlibrary,gutenberg,anna`
+  (sin `zlibrary` — sin cuenta real de prueba, dejarlo activado no aporta
+  nada por defecto), mismo criterio que 3j con los metadata providers.
+
+No se tocó `/library` ni se montó ninguna UI de búsqueda (no existe
+`/search` real todavía, Fase 4) — mismo criterio de verificación
+backend-only que el resto de library/books.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -1813,10 +1987,11 @@ Pega esto al iniciar:
 > proveedores + agregador/ranking + búsqueda de candidatos), edición
 > manual de metadata, refetch automático, y aplicar candidato (esta última
 > con una ruta HTTP nueva inventada — el use-case estaba huérfano en el
-> original). **La pieza A de adquisición Z-Library real (3n — login real)
-> también está cerrada** — reemplaza el submit mock de Z-Library de la
-> Fase 2d. Con esto el Settings modal queda 100% real salvo Hardcover
-> (bloqueado, ver abajo).
+> original). **Las piezas A y B de adquisición Z-Library real también están
+> cerradas** — 3n (login real, reemplaza el submit mock de Z-Library de la
+> Fase 2d) y 3o (búsqueda multi-provider: Z-Library/Anna's Archive/
+> Gutenberg/OpenLibrary, verificado contra servicios reales). Con 3n, el
+> Settings modal queda 100% real salvo Hardcover (bloqueado, ver abajo).
 > Notas importantes ya resueltas (secciones "Fase 3a-3i — Detalle de lo
 > hecho"): en Next 16 el archivo se llama `proxy.ts`, no `middleware.ts` —
 > de momento NO hay `proxy.ts`, la auth se resuelve por-ruta vía
@@ -1910,23 +2085,33 @@ Pega esto al iniciar:
 > **Adquisición Z-Library real tuvo su propia sesión de scoping dedicada
 > (ver sección "Scoping — adquisición Z-Library real")**: el dominio mide
 > ~5,100 líneas (no ~1,500 como sugería 3j) y se trozó en 6 piezas por
-> dependencia — A. login real (hecho en 3n) → B. búsqueda multi-provider
-> (~1,700 líneas: los 4 search providers + registry/factory +
-> `SearchBooksUseCase`, depende de A) → C. descarga/importación directa
-> síncrona (~1,350 líneas: `DownloadBookUseCase`/`DownloadSearchBookUseCase`
-> + `EpubMetadataService` 707 líneas + `storeFromSearchImport` que 3i dejó
-> fuera + `BookRepository.create` nuevo, depende de A+B) → E.
+> dependencia — A. login real (hecho en 3n) → **B. búsqueda multi-provider
+> (hecho en 3o)** → C. descarga/importación directa síncrona (~1,350
+> líneas: `DownloadBookUseCase`/`DownloadSearchBookUseCase` +
+> `EpubMetadataService` 707 líneas + `storeFromSearchImport` que 3i dejó
+> fuera + `BookRepository.create` nuevo, depende de A+B — nota de 3o: los
+> métodos `download()` de los providers de OpenLibrary/Gutenberg/Anna **ya
+> están portados** desde 3o, viven en la misma clase que `search()`; C
+> "solo" necesita wirearlos + el flujo de Z-Library) → E.
 > `/api/library/[title]` GET/PUT/DELETE (~290 líneas, depende de C). Quedan
 > fuera del troceo A-E: **D. cola de descargas en background** (~900
 > líneas, choca con la decisión de arquitectura de jobs de fondo todavía
 > pendiente de 3a/3c/3h) y **F. device-download tracking** (pertenece más a
-> la futura mini-fase de sync de dispositivos KOReader). Para lo que sigas
-> ahora: **B (búsqueda multi-provider)** es el siguiente paso natural del
-> troceo A→B→C→E, o la mini-fase de sync de dispositivos KOReader / la
-> decisión de jobs de fondo si prefieres cerrar esos huecos antes. **No
-> asumas que cabe igual de chico que se ve** — igual que siempre, lee el
-> código real primero y confirma el tamaño antes de comprometerte (en este
-> dominio en particular ya se subestimó una vez en 3j). También sigue
+> la futura mini-fase de sync de dispositivos KOReader). **La Fase 3o
+> también encontró y descartó deliberadamente `/api/zlibrary/search`** (el
+> endpoint, no el de metadata) — está marcado deprecado en el propio
+> original (headers `Deprecation`/`Link`, sin frontend que lo llame),
+> reemplazado por `/api/search`; no se portó. Para lo que sigas ahora: **C
+> (descarga/importación directa)** es el siguiente paso natural del troceo
+> A→B→C→E, o la mini-fase de sync de dispositivos KOReader / la decisión
+> de jobs de fondo si prefieres cerrar esos huecos antes. Nota operativa de
+> 3o: `gutendex.com` (Gutenberg) resultó inalcanzable desde el entorno de
+> esa sesión — si vuelves a tocar ese provider, confirma primero si el
+> entorno actual tiene salida a ese dominio antes de asumir que algo se
+> rompió. **No asumas que cabe igual de chico que se ve** — igual que
+> siempre, lee el código real primero y confirma el tamaño antes de
+> comprometerte (en este dominio en particular ya se subestimó una vez en
+> 3j). También sigue
 > vigente la decisión de metodología: sin UI de biblioteca real todavía
 > (`/library` es el placeholder de Fase 4), verificar cada mini-fase de
 > library/books por build + curl + inspección directa de DB/S3 (scripts

@@ -12,6 +12,7 @@ import type { BookProgressHistory } from "@/lib/server/domain/book-progress-hist
 import type { Device } from "@/lib/server/domain/device";
 import type { PluginRelease, UpsertPluginReleaseInput } from "@/lib/server/domain/plugin-release";
 import type { MetadataProviderId } from "@/lib/types/metadata-provider";
+import type { SearchBooksRequest, SearchProviderId, SearchResultBook } from "@/lib/types/search";
 import type { ZLoginResponse, ZSearchBookResponse } from "@/lib/types/zlibrary";
 import type { ApiResult } from "@/lib/server/http/api";
 
@@ -187,6 +188,32 @@ export interface ZLibraryPort {
   tokenLogin(id: string, token: string): Promise<ApiResult<void>>;
   search(searchBookRequest: ZLibrarySearchRequest): Promise<ApiResult<ZLibrarySearchResult>>;
   download(bookId: string, hash: string, credentials: ZLibraryCredentials): Promise<ApiResult<Response>>;
+}
+
+export interface SearchProviderContext {
+  zlibraryCredentials?: ZLibraryCredentials | null;
+}
+
+export interface SearchProviderDownloadInput {
+  downloadRef: string;
+  title: string;
+  extension?: string | null;
+}
+
+export interface SearchProviderDownloadResult {
+  success: true;
+  fileName: string;
+  fileData: Uint8Array;
+  contentType: string;
+}
+
+export interface SearchProviderPort {
+  readonly id: SearchProviderId;
+  search(input: SearchBooksRequest, context: SearchProviderContext): Promise<ApiResult<SearchResultBook[]>>;
+}
+
+export interface SearchProviderDownloadPort extends SearchProviderPort {
+  download(input: SearchProviderDownloadInput): Promise<ApiResult<SearchProviderDownloadResult>>;
 }
 
 export interface MigrationStatusSnapshot {

@@ -1,3 +1,5 @@
+import { applyAuthResponseSignals } from "@/lib/client/apply-auth-response-signals";
+
 export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -8,6 +10,7 @@ export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   }
   const data = (await response.json()) as T & { error?: string };
   if (!response.ok) {
+    applyAuthResponseSignals(response);
     throw new Error(data.error ?? "Request failed");
   }
   return data;

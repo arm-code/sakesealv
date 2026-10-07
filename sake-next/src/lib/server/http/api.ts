@@ -19,3 +19,18 @@ export function apiError(message: string, status = 500, cause?: unknown): ApiRes
 export function errorResponse(message: string, status = 500): Response {
   return Response.json({ error: message }, { status });
 }
+
+export function withResponseHeader(response: Response, name: string, value: string): Response {
+  try {
+    response.headers.set(name, value);
+    return response;
+  } catch (cause: unknown) {
+    if (!(cause instanceof TypeError) || cause.message !== "immutable") {
+      throw cause;
+    }
+
+    const clonedResponse = new Response(response.body, response);
+    clonedResponse.headers.set(name, value);
+    return clonedResponse;
+  }
+}

@@ -1,0 +1,108 @@
+import type {
+  SearchProviderContext,
+  SearchProviderPort,
+  ZLibraryPort,
+  ZLibrarySearchRequest,
+} from "@/lib/server/application/ports";
+import { buildZLibraryUrl } from "@/lib/server/config/zlibrary";
+import { apiError, apiOk, type ApiResult } from "@/lib/server/http/api";
+import type { SearchBooksRequest, SearchResultBook } from "@/lib/types/search";
+import { extractIsbn } from "@/lib/utils/isbn";
+import { parseSeriesIndex } from "@/lib/utils/series";
+import type { ZBook } from "@/lib/types/zlibrary";
+
+const ZLIBRARY_BOOK_CAPABILITIES = {
+  filesAvailable: true,
+  metadataCompleteness: "high",
+} as const;
+
+function normalizeBookUrl(href: string, baseUrl: string): string | null {
+  const normalized = href.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    const url =
+      normalized.startsWith("http://") || normalized.startsWith("https://")
+        ? new URL(normalized)
+        : normalized.startsWith("//")
+          ? new URL(`https:${normalized}`)
+          : new URL(buildZLibraryUrl(baseUrl, normalized));
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function mapSort(sort: SearchBooksRequest["sort"]): ZLibrarySearchRequest["order"] {
+  if (sort === "year_desc") {
+    return "desc";
+  }
+  if (sort === "year_asc") {
+    return "asc";
+  }
+  return undefined;
+}
+
+function toZLibraryRequest(input: SearchBooksRequest): ZLibrarySearchRequest {
+  return {
+    searchText: input.query,
+    yearFrom: input.filters?.yearFrom !== undefined ? String(input.filters.yearFrom) : undefined,
+    yearTo: input.filters?.yearTo !== undefined ? String(input.filters.yearTo) : undefined,
+    languages: input.filters?.language,
+    extensions: input.filters?.extension,
+    order: mapSort(input.sort),
+    limit: input.filters?.limitPerProvider,
+  };
+}
+
+function mapBook(book: ZBook, zlibraryBaseUrl: string): SearchResultBook {
+  return {
+    provider: "zlibrary",
+    providerBookId: String(book.id),
+    title: book.title,
+    author: book.author?.trim() ? book.author : null,
+    language: book.language?.trim() ? book.language : null,
+    year: typeof book.year === "number" ? book.year : null,
+    extension: book.extension?.trim() ? book.extension : null,
+    filesize: typeof book.filesize === "number" ? book.filesize : null,
+    cover: book.cover?.trim() ? normalizeBookUrl(book.cover, zlibraryBaseUrl) : null,
+    description: book.description?.trim() ? book.description : null,
+    series: book.series?.trim() ? book.series : null,
+    volume: book.volume?.trim() ? book.volume : null,
+    seriesIndex: parseSeriesIndex(book.volume),
+    identifier: book.identifier?.trim() ? book.identifier : null,
+    isbn: extractIsbn(book.identifier),
+    pages: typeof book.pages === "number" ? book.pages : null,
+    capabilities: ZLIBRARY_BOOK_CAPABILITIES,
+    downloadRef: book.hash?.trim() ? book.hash : null,
+    queueRef: book.hash?.trim() ? book.hash : null,
+    sourceUrl: normalizeBookUrl(book.href, zlibraryBaseUrl),
+  };
+}
+
+export class ZLibrarySearchProvider implements SearchProviderPort {
+  readonly id = "zlibrary" as const;
+
+  constructor(private readonly zlibrary: ZLibraryPort) {}
+
+  async search(input: SearchBooksRequest, context: SearchProviderContext): Promise<ApiResult<SearchResultBook[]>> {
+    const credentials = context.zlibraryCredentials;
+    if (!credentials) {
+      return apiError("Z-Library login is not valid", 409);
+    }
+
+    const loginResult = await this.zlibrary.tokenLogin(credentials.userId, credentials.userKey);
+    if (!loginResult.ok) {
+      return loginResult;
+    }
+
+    const searchResult = await this.zlibrary.search(toZLibraryRequest(input));
+    if (!searchResult.ok) {
+      return searchResult;
+    }
+
+    return apiOk(searchResult.value.response.books.map((book) => mapBook(book, searchResult.value.mirrorUrl)));
+  }
+}
