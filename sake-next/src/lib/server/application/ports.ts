@@ -12,6 +12,7 @@ import type { BookProgressHistory } from "@/lib/server/domain/book-progress-hist
 import type { Device } from "@/lib/server/domain/device";
 import type { PluginRelease, UpsertPluginReleaseInput } from "@/lib/server/domain/plugin-release";
 import type { MetadataProviderId } from "@/lib/types/metadata-provider";
+import type { ZLoginResponse, ZSearchBookResponse } from "@/lib/types/zlibrary";
 import type { ApiResult } from "@/lib/server/http/api";
 
 export interface UserRepositoryPort {
@@ -158,6 +159,34 @@ export interface StoragePort {
 export interface ZLibraryMirrorSettingsPort {
   get(): Promise<readonly string[]>;
   replace(urls: readonly string[]): Promise<readonly string[]>;
+}
+
+export interface ZLibraryCredentials {
+  userId: string;
+  userKey: string;
+}
+
+export interface ZLibrarySearchRequest {
+  searchText: string;
+  yearFrom?: string;
+  yearTo?: string;
+  languages?: string[];
+  extensions?: string[];
+  order?: "asc" | "desc";
+  limit?: number;
+}
+
+export interface ZLibrarySearchResult {
+  response: ZSearchBookResponse;
+  mirrorUrl: string;
+}
+
+export interface ZLibraryPort {
+  signup(email: string, name: string, password: string): Promise<ApiResult<boolean>>;
+  passwordLogin(name: string, password: string): Promise<ApiResult<ZLoginResponse>>;
+  tokenLogin(id: string, token: string): Promise<ApiResult<void>>;
+  search(searchBookRequest: ZLibrarySearchRequest): Promise<ApiResult<ZLibrarySearchResult>>;
+  download(bookId: string, hash: string, credentials: ZLibraryCredentials): Promise<ApiResult<Response>>;
 }
 
 export interface MigrationStatusSnapshot {

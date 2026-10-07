@@ -1,6 +1,13 @@
 export const DEFAULT_ZLIBRARY_BASE_URL = "https://z-lib.gl";
 export const MAX_ZLIBRARY_MIRRORS = 5;
 export const MAX_ZLIBRARY_MIRROR_URL_LENGTH = 2048;
+export const ZLIBRARY_MIRROR_FAILOVER_TIMEOUT_MS = 90_000;
+export const ZLIBRARY_REQUEST_TIMEOUT_MS = 30_000;
+export const MAX_ZLIBRARY_DOWNLOAD_REDIRECTS = 5;
+
+export function resolveZLibraryBaseUrl(rawValue: string | undefined | null): string {
+  return resolveZLibraryMirrorUrls(rawValue)[0] ?? DEFAULT_ZLIBRARY_BASE_URL;
+}
 
 export function resolveZLibraryMirrorUrls(rawValue: string | undefined | null): string[] {
   const values = rawValue?.split(",").map((value) => value.trim()).filter(Boolean) ?? [];
@@ -49,4 +56,10 @@ export function normalizeZLibraryUrl(value: string): string {
     throw new Error(`Z-Library mirror URLs must be at most ${MAX_ZLIBRARY_MIRROR_URL_LENGTH} characters`);
   }
   return normalized;
+}
+
+export function buildZLibraryUrl(baseUrl: string, path: string): string {
+  const normalizedBaseUrl = normalizeZLibraryUrl(baseUrl);
+  const baseWithPathSeparator = normalizedBaseUrl.endsWith("/") ? normalizedBaseUrl : `${normalizedBaseUrl}/`;
+  return new URL(path.replace(/^\/+/, ""), baseWithPathSeparator).toString();
 }

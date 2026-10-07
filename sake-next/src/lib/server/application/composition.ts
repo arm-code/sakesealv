@@ -95,6 +95,12 @@ import { UpdateLibraryBookMetadataUseCase } from "@/lib/server/application/use-c
 import { ExternalBookMetadataService } from "@/lib/server/application/services/external-book-metadata-service";
 import { RefetchLibraryBookMetadataUseCase } from "@/lib/server/application/use-cases/refetch-library-book-metadata";
 import { ApplyMetadataCandidateUseCase } from "@/lib/server/application/use-cases/apply-metadata-candidate";
+import { ZLibraryClient } from "@/lib/server/infrastructure/clients/zlibrary-client";
+import {
+  ZLibraryLogoutUseCase,
+  ZLibraryPasswordLoginUseCase,
+  ZLibraryTokenLoginUseCase,
+} from "@/lib/server/application/use-cases/zlibrary-auth";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -210,3 +216,14 @@ export const refetchLibraryBookMetadataUseCase = new RefetchLibraryBookMetadataU
 // storeManagedBookCoverFromExternalUrl (3i) directo, no necesita nada de
 // Z-Library/mirrors.
 export const applyMetadataCandidateUseCase = new ApplyMetadataCandidateUseCase(bookRepository, storage);
+
+// Fase 3n: login real de Z-Library (reemplaza el submit mock de la Fase 2d).
+// zlibraryClient reusa zlibraryMirrorSettingsRepository (3d) como fuente de
+// mirrors en vez de una URL fija, igual que el original. search()/download()
+// ya están portados en el cliente (verbatim, la clase no se puede partir sin
+// duplicar tryMirrors/requestApi/getHeaders) pero sin use-case ni ruta que
+// los invoque todavía — eso es la mini-fase de búsqueda/descarga (3o+).
+export const zlibraryClient = new ZLibraryClient(() => zlibraryMirrorSettingsRepository.get());
+export const zlibraryTokenLoginUseCase = new ZLibraryTokenLoginUseCase(zlibraryClient);
+export const zlibraryPasswordLoginUseCase = new ZLibraryPasswordLoginUseCase(zlibraryClient);
+export const zlibraryLogoutUseCase = new ZLibraryLogoutUseCase();

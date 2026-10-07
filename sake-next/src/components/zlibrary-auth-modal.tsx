@@ -2,28 +2,44 @@
 
 import { useState } from "react";
 import { BookOpen } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { notImplemented } from "@/components/sidebar/settings/not-implemented";
 
 type AuthMode = "password" | "remix";
 
 interface ZLibraryAuthModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onLoginWithPassword: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  onLoginWithToken: (userId: string, userKey: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
-export function ZLibraryAuthModal({ open, onOpenChange }: ZLibraryAuthModalProps) {
+export function ZLibraryAuthModal({ open, onOpenChange, onLoginWithPassword, onLoginWithToken }: ZLibraryAuthModalProps) {
   const [authMode, setAuthMode] = useState<AuthMode>("password");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleSubmit(event: React.FormEvent): void {
+  async function handleSubmit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
-    notImplemented("Connecting to Z-Library");
+    setIsConnecting(true);
+    setError(null);
+    const result =
+      authMode === "remix" ? await onLoginWithToken(username, password) : await onLoginWithPassword(username, password);
+    setIsConnecting(false);
+    if (result.ok) {
+      toast.success("Connected to Z-Library");
+      setUsername("");
+      setPassword("");
+      onOpenChange(false);
+    } else {
+      setError(result.error);
+    }
   }
 
   return (
@@ -45,7 +61,10 @@ export function ZLibraryAuthModal({ open, onOpenChange }: ZLibraryAuthModalProps
               type="button"
               role="tab"
               aria-selected={authMode === "password"}
-              onClick={() => setAuthMode("password")}
+              onClick={() => {
+                setAuthMode("password");
+                setError(null);
+              }}
               className={cn(
                 "flex-1 rounded-md px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors",
                 authMode === "password" && "bg-background text-foreground shadow-sm",
@@ -57,7 +76,10 @@ export function ZLibraryAuthModal({ open, onOpenChange }: ZLibraryAuthModalProps
               type="button"
               role="tab"
               aria-selected={authMode === "remix"}
-              onClick={() => setAuthMode("remix")}
+              onClick={() => {
+                setAuthMode("remix");
+                setError(null);
+              }}
               className={cn(
                 "flex-1 rounded-md px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors",
                 authMode === "remix" && "bg-background text-foreground shadow-sm",
@@ -89,12 +111,14 @@ export function ZLibraryAuthModal({ open, onOpenChange }: ZLibraryAuthModalProps
             />
           </div>
 
+          {error && <p className="text-sm text-destructive">{error}</p>}
+
           <div className="flex gap-2">
             <Button type="button" variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" className="flex-1" disabled={!username || !password}>
-              Connect
+            <Button type="submit" className="flex-1" disabled={!username || !password || isConnecting}>
+              {isConnecting ? "Connecting..." : "Connect"}
             </Button>
           </div>
         </form>

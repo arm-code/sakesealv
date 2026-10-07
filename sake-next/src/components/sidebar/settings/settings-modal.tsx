@@ -9,7 +9,6 @@ import { PluginPane } from "./plugin-pane";
 import { IntegrationsPane } from "./integrations-pane";
 import { AccountPane } from "./account-pane";
 import { DevicesPane } from "./devices-pane";
-import { notImplemented } from "./not-implemented";
 import { useAccountData } from "./use-account-data";
 import { useAppVersion } from "./use-app-version";
 import { useDevicesData } from "./use-devices-data";
@@ -41,9 +40,20 @@ interface SettingsModalProps {
   onOpenChange: (open: boolean) => void;
   onOpenZLibraryLogin: () => void;
   onSessionEnded: () => void;
+  zlibName: string;
+  isLoggingOutZLibrary: boolean;
+  onLogoutZLibrary: () => void;
 }
 
-export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin, onSessionEnded }: SettingsModalProps) {
+export function SettingsModal({
+  open,
+  onOpenChange,
+  onOpenZLibraryLogin,
+  onSessionEnded,
+  zlibName,
+  isLoggingOutZLibrary,
+  onLogoutZLibrary,
+}: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<SectionId>("app");
   const appVersion = useAppVersion(open);
   const account = useAccountData({ enabled: open, onSessionEnded });
@@ -104,10 +114,11 @@ export function SettingsModal({ open, onOpenChange, onOpenZLibraryLogin, onSessi
               <IntegrationsPane
                 status={mockHardcoverStatus}
                 error={null}
-                zlibName=""
+                zlibName={zlibName}
                 showZLibraryLogin
+                isLoggingOutZLibrary={isLoggingOutZLibrary}
                 onOpenZLibraryLogin={onOpenZLibraryLogin}
-                onLogoutZLibrary={() => notImplemented("Logging out of Z-Library (Phase 2d)")}
+                onLogoutZLibrary={onLogoutZLibrary}
                 formatDateTime={formatDateTime}
                 mirrors={zlibraryMirrors.mirrors}
                 mirrorsError={zlibraryMirrors.mirrorsError}

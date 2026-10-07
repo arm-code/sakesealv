@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/sidebar/sidebar";
 import { AppTopBar } from "@/components/layout/app-topbar";
 import { MobileSidebarBackdrop } from "@/components/layout/mobile-sidebar-backdrop";
 import { SettingsModal } from "@/components/sidebar/settings/settings-modal";
+import { useZlibraryAuth } from "@/components/sidebar/settings/use-zlibrary-auth";
 import { ZLibraryAuthModal } from "@/components/zlibrary-auth-modal";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +42,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [zlibModalOpen, setZlibModalOpen] = useState(false);
+  const zlibraryAuth = useZlibraryAuth();
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true");
@@ -89,8 +91,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           // cliente que dependa de la sesión (p.ej. la lista de shelves del Sidebar).
           window.location.href = "/";
         }}
+        zlibName={zlibraryAuth.zlibName}
+        isLoggingOutZLibrary={zlibraryAuth.isLoggingOut}
+        onLogoutZLibrary={zlibraryAuth.logout}
       />
-      <ZLibraryAuthModal open={zlibModalOpen} onOpenChange={setZlibModalOpen} />
+      <ZLibraryAuthModal
+        open={zlibModalOpen}
+        onOpenChange={setZlibModalOpen}
+        onLoginWithPassword={zlibraryAuth.loginWithPassword}
+        onLoginWithToken={zlibraryAuth.loginWithToken}
+      />
     </div>
   );
 }

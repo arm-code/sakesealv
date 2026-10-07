@@ -36,8 +36,13 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3k — metadata providers: edición manual de metadata (`UpdateLibraryBookMetadataUseCase`, sin providers externos, reusa piezas de 3h/3i), verificado backend-only incluyendo limpieza real de portada en S3.
    - ✅ 3l — metadata providers: refetch automático (`ExternalBookMetadataService` + `RefetchLibraryBookMetadataUseCase`), verificado contra OpenLibrary real (relleno de campos faltantes + idempotencia confirmada).
    - ✅ 3m — metadata providers: aplicar candidato (`ApplyMetadataCandidateUseCase`) — **huérfano en el original** (sin ruta HTTP ni UI que lo invoque), portado y verificado con una ruta HTTP nueva inventada (`POST /api/library/[id]/metadata/apply`). **Con esto el dominio completo de metadata providers (3j-3m) queda cerrado.**
-   - ⬜ — **"search providers" (hallazgo de 3j, NO es metadata providers)**: Anna's Archive/Gutenberg/OpenLibrary-search/Z-Library-search (~1,502 líneas) — subsistema aparte para *encontrar libros para descargar*, pertenece a la mini-fase de adquisición Z-Library real (search/download/login), no a metadata providers.
-   - ⬜ — resto de library/books: adquisición Z-Library real (search/download/login), sync de progreso de dispositivos KOReader (ligado a device-pairing). Después de eso: OPDS, DAV, annotations, queue, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
+   - ✅ 3n — **adquisición Z-Library: login real** (`ZLibraryClient` + `tokenLogin`/`passwordLogin`/`logout`), reemplaza el submit mock de la Fase 2d. Sesión de scoping dedicada previa (ver sección "Scoping — adquisición Z-Library real") mapeó el dominio completo (~5,100 líneas, no ~1,500 como sugería 3j) y lo trozó en A→E; esta es la pieza A.
+   - ⬜ — **B. Búsqueda multi-provider** (~1,700 líneas: 4 search providers + registry/factory + `SearchBooksUseCase` + lookup de metadata) — depende de A.
+   - ⬜ — **C. Descarga/importación directa** (~1,350 líneas: `DownloadBookUseCase`/`DownloadSearchBookUseCase` + `EpubMetadataService` 707 líneas + `LibraryImportCollisionService` + `storeFromSearchImport`, la pieza que 3i dejó fuera a propósito + `BookRepository.create` nuevo) — depende de A+B.
+   - ⬜ — **D. Cola de descargas en background** (~900 líneas: `DownloadQueue` + `QueueJobRepository` + use-cases de cola) — depende de A+B+C, y choca con la decisión de arquitectura de jobs de fondo (mismo hueco que plugin sync/Hardcover/trash purge).
+   - ⬜ — **E. `/api/library/[title]` GET/PUT/DELETE** (~290 líneas, el mecanismo por el que providers sin API key de servidor suben el archivo) — depende de C.
+   - ⬜ — **F. Device-download tracking** (`GetNewBooksForDeviceUseCase`, `ConfirmDownloadUseCase`, etc. + `ExportDeviceLibraryBookUseCase`) — pertenece más a la futura mini-fase de sync de dispositivos KOReader (mismo bloqueador de auth dual que 3g) que a adquisición.
+   - ⬜ — sync de progreso de dispositivos KOReader (ligado a device-pairing). Después de eso: OPDS, DAV, annotations, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
 ---
@@ -1606,6 +1611,190 @@ anteriores de library/books.
 
 ---
 
+## Scoping — adquisición Z-Library real (sesión dedicada previa a 3n)
+
+**Confirma el patrón de "no asumas que cabe chico":** el estimado de 3j
+(~1,502 líneas de "search providers") solo cubría una parte. Leyendo el
+código real de `sake/` (composition/search.ts, composition/downloads.ts, y
+todas las rutas `/api/search/*` y `/api/zlibrary/*`), el dominio completo de
+adquisición mide **~5,100 líneas** y se trocea en 6 piezas por dependencia:
+
+- **A. Login real** (~550 líneas: `ZLibraryClient` 410 + use-cases
+  login/logout + config extendido) — sin dependencias nuevas, cierra el
+  mock de 2d. **Esta es la pieza de 3n.**
+- **B. Búsqueda multi-provider** (~1,700 líneas: `SearchProviderPort`/
+  `SearchProviderRegistry`/factory + los 4 providers —
+  `ZLibrarySearchProvider`, `AnnaArchiveSearchProvider` 595 líneas,
+  `GutenbergSearchProvider` 221, `OpenLibrarySearchProvider` 414 — +
+  `SearchBooksUseCase` + `LookupSearchBookMetadataUseCase`, este último
+  reusa `ExternalBookMetadataService` ya portado en 3l) — depende de A
+  (el provider de Z-Library necesita credenciales de sesión para buscar).
+- **C. Descarga/importación directa, síncrona** (~1,350 líneas:
+  `DownloadBookUseCase` 310 + `DownloadSearchBookUseCase` 55 +
+  `EpubMetadataService` 707 líneas — rewrite de título en el EPUB
+  descargado, nueva dependencia de infraestructura, usa `jszip` ya
+  instalado desde 3c — + `LibraryImportCollisionService` + `StorageKeySanitizer`
+  + `ManagedBookCoverService.storeFromSearchImport`, la pieza que 3i dejó
+  fuera a propósito — reutiliza casi todos los helpers privados ya
+  portados de `storeFromExternalUrl`, solo le falta la rama de resolución
+  de mirrors + credenciales — + `BookRepository.create`/`CreateBookInput`,
+  nuevo) — depende de A+B.
+- **D. Cola de descargas en background** (~900 líneas: `DownloadQueue` 472 +
+  `QueueJobRepository` 276 + `QueueDownloadUseCase`/`QueueSearchBookUseCase`/
+  `GetQueueStatusUseCase`) — depende de A+B+C, y **choca con la decisión de
+  arquitectura de jobs de fondo** todavía pendiente (mismo hueco de 3a/3c/3h:
+  plugin sync, Hardcover, trash purge — ahora un cuarto consumidor esperando
+  el mismo mecanismo).
+- **E. `/api/library/[title]` GET/PUT/DELETE** (~290 líneas, sobre todo
+  `PutLibraryFileUseCase` 235) — confirmado leyendo `libraryDetailController.svelte.ts`:
+  es el mecanismo por el que el navegador sube el archivo cuando el
+  provider (Anna's Archive/Gutenberg/OpenLibrary, no Z-Library) no tiene
+  API key de servidor — depende de C.
+- **F. Device-download tracking** (`GetNewBooksForDeviceUseCase`,
+  `ConfirmDownloadUseCase`, `RemoveDeviceDownloadUseCase`,
+  `ResetDownloadStatusUseCase`, `ExportDeviceLibraryBookUseCase` 249 líneas)
+  — pertenece más a la futura mini-fase de sync de dispositivos KOReader
+  (mismo bloqueador de auth dual identificado en 3g) que a adquisición en
+  sí; se deja fuera del troceo A-E.
+
+**Troceo confirmado con el usuario:** A (3n, este) → B → C → E, dejando D
+para cuando se resuelva la arquitectura de jobs de fondo, y F para la
+mini-fase de device-sync.
+
+---
+
+## Fase 3n — Detalle de lo hecho (COMPLETA)
+
+**Pieza A del troceo de adquisición Z-Library (ver sección de scoping
+arriba): login real**, reemplaza el submit mock de `ZLibraryAuthModal` de
+la Fase 2d. A diferencia de los shelves (2c), acá sí hay una sesión externa
+real que autenticar — mismo principio que ya se aplicó en 2d.
+
+### Por qué se portó `ZLibraryClient` completo (410 líneas) aunque 3n solo usa login
+La clase implementa `ZLibraryPort` (`signup`/`passwordLogin`/`tokenLogin`/
+`search`/`download`) compartiendo helpers privados (`tryMirrors`/
+`requestApi`/`getHeaders`/`getCookies`) entre los 5 métodos — partirla para
+portar solo login habría significado duplicar esos helpers ahora y de nuevo
+en la pieza B (búsqueda) y C (descarga). Se portó verbatim completa; los
+métodos `search`/`download` quedan sin use-case ni ruta que los invoque
+hasta B/C, mismo patrón que `BookRepositoryPort` en 3f (se extiende según
+se necesita, no se recorta la clase origen).
+
+### Cookies de Z-Library: cambio deliberado respecto al original
+El original fija `Secure` a mano en el `Set-Cookie` crudo de las rutas de
+login/logout (inconsistente con `clearZlibraryCookies`, que sí usa
+`isSecureRequest()` vía la API `Cookies` de SvelteKit — un quirk del
+original, no una decisión documentada). `sake-next` ya tenía
+`isSecureRequest(request)` como el mecanismo establecido para la cookie de
+sesión de Sake (self-hosting detrás de reverse proxy). Se usó el mismo
+mecanismo para `userId`/`userKey` vía `setZLibraryCookies`/
+`clearZLibraryCookies` nuevas en `auth/cookies.ts` (mismos nombres de
+cookie, mismo TTL de 1 año, mismos flags `httpOnly`/`sameSite=lax`) — más
+correcto detrás de un reverse proxy, consistente con el resto de la app, no
+un cambio de comportamiento visible. De paso se añadió
+`getZLibraryCredentials()` (lee ambas cookies, `null` si falta alguna) en
+el mismo archivo — no se usa todavía (eso es B/C), pero es el contraparte
+natural de `set`/`clear` y vive mejor ahí que repartido después.
+
+### Parser de body recortado a lo que 3n usa
+`zlibraryRequests.ts` original (92 líneas) mezcla los parsers de
+login (`parseZTokenLoginRequest`/`parseZPasswordLoginRequest`) con el de
+búsqueda (`parseZSearchRequest`, que arrastra `parseStringArray`/`parseYear`
+y las constantes de límites de query). Se portó solo lo que usa 3n
+(`zlibrary-auth-request.ts`, los 2 parsers de login + `isRecord`/
+`parseRequiredString`) — mismo patrón de recorte de toda la migración.
+`parseZSearchRequest` se porta en B cuando haga falta.
+
+### "Conectado" es estado 100% cliente, sin cambios
+Confirmado leyendo `zlibAuthService.ts` original: no existe un endpoint de
+"status" de Z-Library — el indicador "Connected"/nombre de usuario en
+Integrations vive en `localStorage` (`zlibName`, mismo key que el
+original), poblado por el front tras un login exitoso. No hace falta
+ninguna ruta nueva para esto; se portó tal cual en el hook
+`use-zlibrary-auth.ts` nuevo.
+
+### Archivos creados
+- `src/lib/types/zlibrary.ts` — `ZBook`/`ZSearchBookResponse`/
+  `ZBookFileResponse`/`ZLibUser`/`ZLoginResponse`/`ZLoginRequest`/
+  `ZTokenLoginRequest`, verbatim (consolidados en un archivo, a diferencia
+  del original que los separa en `Requests/`/`Responses/`).
+- `src/lib/server/config/zlibrary.ts` ganó `ZLIBRARY_MIRROR_FAILOVER_TIMEOUT_MS`/
+  `ZLIBRARY_REQUEST_TIMEOUT_MS`/`MAX_ZLIBRARY_DOWNLOAD_REDIRECTS`/
+  `resolveZLibraryBaseUrl`/`buildZLibraryUrl` (la parte de mirrors ya
+  estaba desde 3d).
+- `src/lib/server/infrastructure/clients/to-url-encode.ts`,
+  `zlibrary-client.ts` — `toUrlEncoded`/`ZLibraryClient`, verbatim.
+- `src/lib/server/application/ports.ts` ganó `ZLibraryCredentials`/
+  `ZLibrarySearchRequest`/`ZLibrarySearchResult`/`ZLibraryPort`.
+- `src/lib/server/application/use-cases/zlibrary-auth.ts` —
+  `ZLibraryTokenLoginUseCase`/`ZLibraryPasswordLoginUseCase`/
+  `ZLibraryLogoutUseCase`, los 3 en un archivo (mismo patrón que
+  `zlibrary-mirror-settings.ts` de 3d).
+- `src/lib/server/http/zlibrary-auth-request.ts` — parsers recortados (ver
+  arriba).
+- `src/lib/server/auth/cookies.ts` ganó `setZLibraryCookies`/
+  `clearZLibraryCookies`/`getZLibraryCredentials` (ver arriba).
+  `src/lib/server/auth/constants.ts` ganó los nombres/TTL de esas cookies.
+- 3 rutas, todas con `requireSession()` (no están en el allowlist público
+  del original): `/api/zlibrary/login` (POST, token), `/api/zlibrary/passwordLogin`
+  (POST, email+password), `/api/zlibrary/logout` (GET).
+- `composition.ts` — `zlibraryClient` (usa `zlibraryMirrorSettingsRepository.get()`
+  de 3d como fuente de mirrors, igual que el original) + los 3 use-cases
+  wireados.
+- Frontend: `src/lib/client/zlibrary-auth-api.ts` + hook
+  `src/components/sidebar/settings/use-zlibrary-auth.ts` (estado `zlibName`
+  en `localStorage`, `loginWithPassword`/`loginWithToken`/`logout` reales) —
+  elevado a `(app)/layout.tsx` (mismo nivel que `zlibModalOpen`) porque lo
+  necesitan tanto `SettingsModal` (mostrar nombre conectado + logout) como
+  `ZLibraryAuthModal` (submit de login), que son hermanos ahí.
+  `zlibrary-auth-modal.tsx` ganó estado real de error/loading (antes no
+  tenía, el submit era mock) y cierra el modal + toast de éxito en login
+  exitoso. `settings-modal.tsx`/`integrations-pane.tsx` ya no usan
+  `notImplemented()` para Z-Library.
+
+### Gotcha de verificación: mirrors `.example` fantasma de la Fase 3d
+Al probar login contra Z-Library real, la primera corrida falló con
+`ExternalClientError`/`network` genérico — la tabla `zlibraryMirrorSettings`
+todavía tenía los 3 mirrors `*.example` que 3d insertó para probar
+persistencia (nunca se revirtieron a un valor real tras esa sesión). Se
+corrigió con un `PUT /api/integrations/zlibrary/mirrors` real a
+`["https://z-lib.gl"]` — no un side-channel, la misma ruta que un usuario
+real usaría — y **se dejó así** (es el valor correcto para un self-host
+real, no un artefacto de prueba) en vez de restaurar los `.example`. Quien
+retome 3d-adjacent debe saber que los mirrors de prueba ya no están.
+
+### Verificación
+`bun run build` limpio (46 rutas API en total). Puerto 3000 verificado
+libre antes de levantar, `sake-seaweedfs` reutilizado. Sesión real creada
+con script desechable (`_seed-session-3n.ts`, borrado al terminar) contra
+el usuario `admin` existente. Contra el build de producción real (`bun run
+start`) con `curl` y sesión real:
+- `POST /api/zlibrary/login`/`passwordLogin` sin sesión → 401; con sesión,
+  body vacío/incompleto → 400 (`"userId is required"`/`"password is
+  required"`); JSON inválido → 400.
+- **Login real contra Z-Library** (tras arreglar los mirrors, ver gotcha
+  arriba): credenciales inválidas (`userId: "0", userKey: "invalid"` /
+  email+password inexistentes) → la API real de Z-Library responde 400, y
+  ese 400 se propaga correctamente como error al cliente (confirmado
+  también con un script desechable llamando a `zlibraryClient` directo,
+  mismo `ExternalClientError` con status 400 real de `z-lib.gl`, no un
+  fallo de red) — confirma `tryMirrors`/`requestApi`/mirror resolution
+  funcionando end-to-end contra el servicio real. No se pudo probar el
+  camino de éxito (no hay credenciales reales de Z-Library disponibles en
+  esta sesión) — limitación conocida, igual que en 2d no se pudo fingir un
+  "Conectado" real.
+- `GET /api/zlibrary/logout` sin sesión → 401; con sesión → 200 y
+  `Set-Cookie` reales limpiando `userId`/`userKey` (`Max-Age`/`Expires` en
+  el pasado).
+
+Backend-only, sin UI de biblioteca — pero a diferencia de 3f-3m, esta vez
+**sí se tocó UI real ya existente** (`ZLibraryAuthModal`/`IntegrationsPane`
+de 2b/2d), porque el login de Z-Library ya tenía una UI completa esperando
+por datos reales desde la Fase 2d — no hubo que inventar ni diferir nada de
+interfaz.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -1624,9 +1813,10 @@ Pega esto al iniciar:
 > proveedores + agregador/ranking + búsqueda de candidatos), edición
 > manual de metadata, refetch automático, y aplicar candidato (esta última
 > con una ruta HTTP nueva inventada — el use-case estaba huérfano en el
-> original). Con el App pane, el Settings modal quedó 100% real salvo
-> Hardcover (bloqueado, ver abajo) y el login real de Z-Library (mockeado
-> a propósito, Fase 2d).
+> original). **La pieza A de adquisición Z-Library real (3n — login real)
+> también está cerrada** — reemplaza el submit mock de Z-Library de la
+> Fase 2d. Con esto el Settings modal queda 100% real salvo Hardcover
+> (bloqueado, ver abajo).
 > Notas importantes ya resueltas (secciones "Fase 3a-3i — Detalle de lo
 > hecho"): en Next 16 el archivo se llama `proxy.ts`, no `middleware.ts` —
 > de momento NO hay `proxy.ts`, la auth se resuelve por-ruta vía
@@ -1717,19 +1907,33 @@ Pega esto al iniciar:
 > `POST /api/library/[id]/metadata/apply` y su validador de body desde
 > cero).
 >
-> Para lo que sigas ahora, con metadata providers completamente cerrado:
-> **adquisición Z-Library real** (search/download/login, ahora incluye el
-> subsistema de "search providers" descubierto en 3j — Anna's Archive/
-> Gutenberg/OpenLibrary-search/Z-Library-search, probable candidata a su
-> propia sesión de scoping dedicada, es grande), o la mini-fase de sync de
-> dispositivos KOReader / la decisión de jobs de fondo si prefieres cerrar
-> esos huecos antes. **No asumas que cabe igual de
-> chico que se ve** — igual que siempre, lee el código real primero y
-> confirma el tamaño antes de comprometerte. También sigue vigente la
-> decisión de metodología: sin UI de biblioteca real todavía (`/library` es
-> el placeholder de Fase 4), verificar cada mini-fase de library/books por
-> build + curl + inspección directa de DB/S3 (scripts desechables para
-> sembrar datos, borrados antes de terminar la sesión), no por
-> Playwright-contra-UI — eso vuelve cuando la Fase 4 construya la página
-> real. Plantea el alcance de lo que sea que sigue antes de escribir nada,
-> mismo patrón que siempre.
+> **Adquisición Z-Library real tuvo su propia sesión de scoping dedicada
+> (ver sección "Scoping — adquisición Z-Library real")**: el dominio mide
+> ~5,100 líneas (no ~1,500 como sugería 3j) y se trozó en 6 piezas por
+> dependencia — A. login real (hecho en 3n) → B. búsqueda multi-provider
+> (~1,700 líneas: los 4 search providers + registry/factory +
+> `SearchBooksUseCase`, depende de A) → C. descarga/importación directa
+> síncrona (~1,350 líneas: `DownloadBookUseCase`/`DownloadSearchBookUseCase`
+> + `EpubMetadataService` 707 líneas + `storeFromSearchImport` que 3i dejó
+> fuera + `BookRepository.create` nuevo, depende de A+B) → E.
+> `/api/library/[title]` GET/PUT/DELETE (~290 líneas, depende de C). Quedan
+> fuera del troceo A-E: **D. cola de descargas en background** (~900
+> líneas, choca con la decisión de arquitectura de jobs de fondo todavía
+> pendiente de 3a/3c/3h) y **F. device-download tracking** (pertenece más a
+> la futura mini-fase de sync de dispositivos KOReader). Para lo que sigas
+> ahora: **B (búsqueda multi-provider)** es el siguiente paso natural del
+> troceo A→B→C→E, o la mini-fase de sync de dispositivos KOReader / la
+> decisión de jobs de fondo si prefieres cerrar esos huecos antes. **No
+> asumas que cabe igual de chico que se ve** — igual que siempre, lee el
+> código real primero y confirma el tamaño antes de comprometerte (en este
+> dominio en particular ya se subestimó una vez en 3j). También sigue
+> vigente la decisión de metodología: sin UI de biblioteca real todavía
+> (`/library` es el placeholder de Fase 4), verificar cada mini-fase de
+> library/books por build + curl + inspección directa de DB/S3 (scripts
+> desechables para sembrar datos, borrados antes de terminar la sesión), no
+> por Playwright-contra-UI — eso vuelve cuando la Fase 4 construya la
+> página real. La única excepción ya ocurrida es 3n: como el login de
+> Z-Library ya tenía UI real esperando desde la Fase 2d, esa sesión sí tocó
+> componentes de UI existentes (no una página nueva de Fase 4). Plantea el
+> alcance de lo que sea que sigue antes de escribir nada, mismo patrón que
+> siempre.
