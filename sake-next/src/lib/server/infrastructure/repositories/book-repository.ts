@@ -1,9 +1,9 @@
 import type { BookRepositoryPort } from "@/lib/server/application/ports";
-import type { Book, UpdateBookMetadataInput } from "@/lib/server/domain/book";
+import type { Book, CreateBookInput, UpdateBookMetadataInput } from "@/lib/server/domain/book";
 import { drizzleDb } from "@/lib/server/infrastructure/db/client";
 import { books } from "@/lib/server/infrastructure/db/schema";
 import { createChildLogger } from "@/lib/server/infrastructure/logging/logger";
-import { bookSelection, bookSelectionWithDownloadState, mapBookRow, mapBookWithDownloadRow, toUpdateBookMetadataRow } from "./book-repository.helpers";
+import { bookSelection, bookSelectionWithDownloadState, mapBookRow, mapBookWithDownloadRow, toCreateBookRow, toUpdateBookMetadataRow } from "./book-repository.helpers";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, notInArray, sql } from "drizzle-orm";
 
 export class BookRepository implements BookRepositoryPort {
@@ -40,6 +40,61 @@ export class BookRepository implements BookRepositoryPort {
       .where(and(eq(books.s3StorageKey, storageKey), isNull(books.deletedAt)))
       .limit(1);
     return row ? mapBookRow(row) : undefined;
+  }
+
+  async getByZLibId(zLibId: string): Promise<Book | undefined> {
+    const [row] = await drizzleDb
+      .select(bookSelection)
+      .from(books)
+      .where(and(eq(books.zLibId, zLibId), isNull(books.deletedAt)))
+      .limit(1);
+    return row ? mapBookRow(row) : undefined;
+  }
+
+  async getByZLibIdIncludingTrashed(zLibId: string): Promise<Book | undefined> {
+    const active = await this.getByZLibId(zLibId);
+    if (active) {
+      return active;
+    }
+
+    const [row] = await drizzleDb
+      .select(bookSelection)
+      .from(books)
+      .where(and(eq(books.zLibId, zLibId), isNotNull(books.deletedAt)))
+      .orderBy(desc(books.deletedAt), desc(books.id))
+      .limit(1);
+    return row ? mapBookRow(row) : undefined;
+  }
+
+  async getByStorageKeyIncludingTrashed(storageKey: string): Promise<Book | undefined> {
+    const active = await this.getByStorageKey(storageKey);
+    if (active) {
+      return active;
+    }
+
+    const [row] = await drizzleDb
+      .select(bookSelection)
+      .from(books)
+      .where(and(eq(books.s3StorageKey, storageKey), isNotNull(books.deletedAt)))
+      .orderBy(desc(books.deletedAt), desc(books.id))
+      .limit(1);
+    return row ? mapBookRow(row) : undefined;
+  }
+
+  async create(book: CreateBookInput): Promise<Book> {
+    const createdAt = new Date().toISOString();
+    const [created] = await drizzleDb.insert(books).values(toCreateBookRow(book, createdAt)).returning(bookSelection);
+
+    if (!created) {
+      throw new Error("Failed to create book");
+    }
+
+    this.repoLogger.info(
+      { event: "book.created", id: created.id, zLibId: created.zLibId, storageKey: created.s3StorageKey },
+      "Book row inserted",
+    );
+
+    return mapBookRow(created);
   }
 
   async updateMetadata(id: number, metadata: UpdateBookMetadataInput): Promise<Book> {

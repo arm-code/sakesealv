@@ -39,9 +39,24 @@ export interface Book {
   isDownloaded?: boolean;
 }
 
+// Usado por DownloadBookUseCase (Fase 3 — pieza C de adquisición Z-Library).
+export type CreateBookInput = Omit<
+  Book,
+  | "id"
+  | "createdAt"
+  | "progress_storage_key"
+  | "progress_updated_at"
+  | "progress_percent"
+  | "progress_before_read"
+  | "rating"
+  | "read_at"
+  | "archived_at"
+  | "exclude_from_new_books"
+  | "deleted_at"
+  | "trash_expires_at"
+>;
+
 // Usado por BookRepository.updateMetadata (Fase 3i — portadas upload/import).
-// CreateBookInput sigue sin portar, no lo usa nada todavía (pertenece a la
-// mini-fase de adquisición).
 export interface UpdateBookMetadataInput {
   zLibId: string | null;
   title: string;

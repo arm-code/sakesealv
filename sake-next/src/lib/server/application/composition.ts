@@ -20,10 +20,16 @@
 // "search providers" (Anna's Archive/Gutenberg/OpenLibrary-search/
 // Z-Library-search) — es un subsistema aparte para *buscar libros para
 // descargar*, pertenece a la adquisición Z-Library real, no a metadata
-// providers. Cuando se migren más features, extender este archivo (igual
-// que el original `composition.ts` barrel, pero sin arrastrar subsistemas
-// que aún no existen en sake-next: search providers, adquisición
-// Z-Library, annotations, sync de dispositivos...).
+// providers. La adquisición Z-Library real (login 3n, búsqueda 3o,
+// descarga/importación directa 3p/pieza C) también está wireada —
+// `downloadBookUseCase`/`downloadSearchBookUseCase`. Quedan fuera del
+// troceo de adquisición: D (cola de descargas en background, mismo hueco
+// de arquitectura de jobs de fondo) y E (`/api/library/[title]`, el PUT
+// que sube el archivo para providers sin API key de servidor). Cuando se
+// migren más features, extender este archivo (igual que el original
+// `composition.ts` barrel, pero sin arrastrar subsistemas que aún no
+// existen en sake-next: cola de descargas, annotations, sync de
+// dispositivos...).
 import { UserRepository } from "@/lib/server/infrastructure/repositories/user-repository";
 import { UserSessionRepository } from "@/lib/server/infrastructure/repositories/user-session-repository";
 import { UserApiKeyRepository } from "@/lib/server/infrastructure/repositories/user-api-key-repository";
@@ -105,6 +111,13 @@ import { createSearchProviders } from "@/lib/server/infrastructure/search-provid
 import { getActivatedSearchProviders } from "@/lib/server/config/activated-search-providers";
 import { SearchBooksUseCase } from "@/lib/server/application/use-cases/search-books";
 import { LookupSearchBookMetadataUseCase } from "@/lib/server/application/use-cases/lookup-search-book-metadata";
+import { SEARCH_PROVIDER_IDS } from "@/lib/types/search";
+import { LibraryImportCollisionService } from "@/lib/server/application/services/library-import-collision-service";
+import { EpubMetadataService } from "@/lib/server/application/services/epub-metadata-service";
+import { storeManagedBookCoverFromSearchImport } from "@/lib/server/application/services/managed-book-cover";
+import { mimeTypes } from "@/lib/server/constants/mime-types";
+import { DownloadBookUseCase } from "@/lib/server/application/use-cases/download-book";
+import { DownloadSearchBookUseCase } from "@/lib/server/application/use-cases/download-search-book";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -238,3 +251,34 @@ export const activeSearchProviders = getActivatedSearchProviders();
 export const activeSearchProviderInstances = createSearchProviders(activeSearchProviders, { zlibrary: zlibraryClient });
 export const searchBooksUseCase = new SearchBooksUseCase(activeSearchProviderInstances, activeSearchProviders);
 export const lookupSearchBookMetadataUseCase = new LookupSearchBookMetadataUseCase(externalBookMetadataService);
+
+// Pieza C del troceo de adquisición Z-Library real — descarga/importación
+// directa síncrona (depende de A/3n + B/3o). `allSearchProviderInstances`
+// instancia los 4 providers sin pasar por el gate de ACTIVATED_PROVIDERS —
+// así es en el original: la descarga funciona aunque ese provider no esté
+// activado para búsqueda. `uploadServiceFactory` reemplaza
+// `DavUploadServiceFactory.createS3()` del original (una clase de una sola
+// función) por un objeto inline sobre el `storage` ya singleton de este
+// archivo, mismo contenido que `DavUploadService.upload` (prefijo
+// `library/` + content-type por extensión vía `mimeTypes`).
+export const allSearchProviderInstances = createSearchProviders([...SEARCH_PROVIDER_IDS], { zlibrary: zlibraryClient });
+export const importCollisionService = new LibraryImportCollisionService(bookRepository);
+export const downloadBookUseCase = new DownloadBookUseCase(
+  zlibraryClient,
+  bookRepository,
+  storage,
+  () => ({
+    upload: (fileName: string, data: Buffer | Uint8Array) => {
+      const extension = fileName.split(".").pop()?.toLowerCase() || "default";
+      const contentType = mimeTypes[extension] || mimeTypes.default;
+      return storage.put(`library/${fileName}`, data, contentType);
+    },
+  }),
+  {
+    storeFromSearchImport: (input) => storeManagedBookCoverFromSearchImport(storage, input, () => zlibraryMirrorSettingsRepository.get()),
+  },
+  new EpubMetadataService(),
+  externalBookMetadataService,
+  importCollisionService,
+);
+export const downloadSearchBookUseCase = new DownloadSearchBookUseCase(allSearchProviderInstances);

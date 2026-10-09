@@ -1,19 +1,18 @@
 // Recortado a lo que usa GetLibraryCoverUseCase (Fase 3f),
 // DeleteTrashedLibraryBookUseCase/PurgeExpiredTrashUseCase
-// (deleteManagedBookCoversForStorageKey, Fase 3h), y desde 3i
-// Upload/ImportLibraryBookCoverUseCase (storeManagedBookCoverFromBuffer/
-// storeManagedBookCoverFromExternalUrl) — funciones sueltas, sin la clase
-// `ManagedBookCoverService` completa. Lo que queda fuera a propósito:
-// `storeFromSearchImport` (el flujo de importar portada al aplicar un
-// candidato de metadata de búsqueda — Z-Library/mirrors/credenciales,
-// pertenece a la mini-fase de metadata providers, 3j+) y todo lo que solo
-// ese método necesita (resolución de mirrors de Z-Library, cookies,
-// `normalizeSourceUrl` por proveedor). `storeFromExternalUrl` (import
-// manual por URL) y `storeFromBuffer` (upload desde el EPUB/un archivo) no
-// tocan nada de eso.
-import type { StoragePort } from "@/lib/server/application/ports";
+// (deleteManagedBookCoversForStorageKey, Fase 3h), Upload/
+// ImportLibraryBookCoverUseCase (storeManagedBookCoverFromBuffer/
+// storeManagedBookCoverFromExternalUrl, Fase 3i), y desde la pieza C de
+// adquisición Z-Library (DownloadBookUseCase) storeManagedBookCoverFromSearchImport
+// — funciones sueltas, sin la clase `ManagedBookCoverService` completa.
+import type { StoragePort, ZLibraryCredentials } from "@/lib/server/application/ports";
+import { buildZLibraryUrl, DEFAULT_ZLIBRARY_BASE_URL } from "@/lib/server/config/zlibrary";
+import type { SearchProviderId } from "@/lib/types/search";
 import { createChildLogger, toLogError } from "@/lib/server/infrastructure/logging/logger";
 import { createHash } from "node:crypto";
+
+const ANNA_ARCHIVE_COVER_HOST = "annas-archive.gl";
+const OPEN_LIBRARY_COVER_HOST = "covers.openlibrary.org";
 
 const LIBRARY_COVER_ROUTE_PREFIX = "/api/library/covers/";
 const LIBRARY_COVER_STORAGE_PREFIX = "covers/";
@@ -40,6 +39,13 @@ export interface ManagedBookCoverResult {
 export interface StoreExternalBookCoverInput {
   bookStorageKey: string;
   coverUrl: string | null | undefined;
+}
+
+export interface StoreManagedBookCoverInput {
+  bookStorageKey: string;
+  provider: SearchProviderId;
+  coverUrl: string | null | undefined;
+  zlibraryCredentials?: ZLibraryCredentials;
 }
 
 export interface StoreManagedBookCoverBufferInput {
@@ -288,7 +294,7 @@ async function readResponseBufferWithinLimit(input: { response: Response; maxByt
 
 async function uploadManagedCover(
   storage: StoragePort,
-  input: { bookStorageKey: string; provider: "manual" | "epub"; contentType: string; coverBuffer: Buffer; sourceUrl: string | null },
+  input: { bookStorageKey: string; provider: SearchProviderId | "manual" | "epub"; contentType: string; coverBuffer: Buffer; sourceUrl: string | null },
 ): Promise<ManagedBookCoverResult> {
   const extension = extensionFromImageContentType(input.contentType);
   if (extension === null) {
@@ -454,6 +460,188 @@ export async function storeManagedBookCoverFromExternalUrl(
   } catch (error: unknown) {
     coverServiceLogger.warn(
       { event: "library.cover.fetch.failed", bookStorageKey: input.bookStorageKey, provider: "manual", sourceUrl, error: toLogError(error) },
+      "Managed cover fetch failed, falling back to source URL",
+    );
+    return { managedUrl: null, sourceUrl };
+  }
+}
+
+function parseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function buildZLibraryCookie(credentials: ZLibraryCredentials): string {
+  return ["siteLanguageV2=en", `remix_userid=${credentials.userId}`, `remix_userkey=${credentials.userKey}`].join("; ");
+}
+
+function normalizeSearchImportSourceUrl(provider: SearchProviderId, coverUrl: string | null | undefined, zlibraryMirrorUrls: readonly string[]): string | null {
+  const normalized = typeof coverUrl === "string" ? coverUrl.trim() : "";
+  if (!normalized) {
+    return null;
+  }
+
+  if (provider === "gutenberg") {
+    return null;
+  }
+
+  if (provider === "openlibrary") {
+    const url = parseUrl(normalized);
+    if (url === null || url.protocol !== "https:" || url.hostname !== OPEN_LIBRARY_COVER_HOST) {
+      return null;
+    }
+    return url.toString();
+  }
+
+  if (provider === "anna") {
+    const url = parseUrl(normalized);
+    if (url === null || url.protocol !== "https:") {
+      return null;
+    }
+    if (url.hostname !== ANNA_ARCHIVE_COVER_HOST && url.hostname !== OPEN_LIBRARY_COVER_HOST) {
+      return null;
+    }
+    return url.toString();
+  }
+
+  if (provider === "zlibrary") {
+    const baseUrl = parseUrl(zlibraryMirrorUrls[0] ?? DEFAULT_ZLIBRARY_BASE_URL);
+    if (baseUrl === null) {
+      return null;
+    }
+
+    let url = parseUrl(normalized);
+    if (url === null) {
+      try {
+        url = normalized.startsWith("//") ? new URL(`https:${normalized}`) : new URL(buildZLibraryUrl(baseUrl.toString(), normalized));
+      } catch {
+        return null;
+      }
+    }
+
+    if (url === null || url.protocol !== "https:") {
+      return null;
+    }
+    return url.toString();
+  }
+
+  return null;
+}
+
+function buildSearchImportFetchHeaders(
+  provider: SearchProviderId,
+  zlibraryCredentials: ZLibraryCredentials | undefined,
+  targetUrl: string,
+  zlibraryMirrorUrls: readonly string[],
+): Headers {
+  const headers = buildDefaultFetchHeaders();
+
+  const requestUrl = parseUrl(targetUrl);
+  const mirrorOrigins = new Set(
+    zlibraryMirrorUrls
+      .map(parseUrl)
+      .filter((url): url is URL => url !== null)
+      .map((url) => url.origin),
+  );
+  if (provider === "zlibrary" && zlibraryCredentials && requestUrl !== null && mirrorOrigins.has(requestUrl.origin)) {
+    headers.set("Cookie", buildZLibraryCookie(zlibraryCredentials));
+  }
+
+  return headers;
+}
+
+export async function storeManagedBookCoverFromSearchImport(
+  storage: StoragePort,
+  input: StoreManagedBookCoverInput,
+  getZLibraryMirrorUrls: () => Promise<readonly string[]>,
+  fetchImpl: FetchLike = fetch,
+): Promise<ManagedBookCoverResult> {
+  const mirrorUrls = input.provider === "zlibrary" ? await getZLibraryMirrorUrls() : [DEFAULT_ZLIBRARY_BASE_URL];
+  const sourceUrl = normalizeSearchImportSourceUrl(input.provider, input.coverUrl, mirrorUrls);
+  if (sourceUrl === null) {
+    return { managedUrl: null, sourceUrl: null };
+  }
+
+  const fetchHeaders = buildSearchImportFetchHeaders(input.provider, input.zlibraryCredentials, sourceUrl, mirrorUrls);
+
+  try {
+    const response = await fetchImpl(sourceUrl, { method: "GET", headers: fetchHeaders });
+
+    if (!response.ok) {
+      coverServiceLogger.warn(
+        { event: "library.cover.fetch.rejected", bookStorageKey: input.bookStorageKey, provider: input.provider, sourceUrl, status: response.status },
+        "Managed cover fetch failed, falling back to source URL",
+      );
+      return { managedUrl: null, sourceUrl };
+    }
+
+    const resolvedSourceUrl = normalizeSearchImportSourceUrl(input.provider, response.url, mirrorUrls);
+    if (resolvedSourceUrl === null) {
+      coverServiceLogger.warn(
+        { event: "library.cover.fetch.redirect_rejected", bookStorageKey: input.bookStorageKey, provider: input.provider, sourceUrl, redirectUrl: response.url },
+        "Managed cover fetch redirected to an untrusted URL",
+      );
+      return { managedUrl: null, sourceUrl };
+    }
+
+    const contentType = normalizeContentType(response.headers.get("content-type"));
+    if (contentType === null || !contentType.startsWith("image/")) {
+      coverServiceLogger.warn(
+        { event: "library.cover.fetch.unsupported_content_type", bookStorageKey: input.bookStorageKey, provider: input.provider, sourceUrl: resolvedSourceUrl, contentType },
+        "Managed cover fetch returned a non-image response",
+      );
+      return { managedUrl: null, sourceUrl: resolvedSourceUrl };
+    }
+
+    const declaredSize = parseDeclaredSize(response.headers.get("content-length"));
+    if (declaredSize !== null && declaredSize > MAX_MANAGED_BOOK_COVER_BYTES) {
+      coverServiceLogger.warn(
+        { event: "library.cover.fetch.too_large_declared", bookStorageKey: input.bookStorageKey, provider: input.provider, sourceUrl: resolvedSourceUrl, declaredSize },
+        "Managed cover fetch exceeded the size limit before download",
+      );
+      return { managedUrl: null, sourceUrl: resolvedSourceUrl };
+    }
+
+    const extension = extensionFromImageContentType(contentType);
+    if (extension === null) {
+      coverServiceLogger.warn(
+        { event: "library.cover.fetch.unsupported_image_type", bookStorageKey: input.bookStorageKey, provider: input.provider, sourceUrl: resolvedSourceUrl, contentType },
+        "Managed cover fetch returned an unsupported image type",
+      );
+      return { managedUrl: null, sourceUrl: resolvedSourceUrl };
+    }
+
+    const coverRead = await readResponseBufferWithinLimit({ response, maxBytes: MAX_MANAGED_BOOK_COVER_BYTES });
+    if (coverRead.exceededLimit || coverRead.byteLength < MIN_MANAGED_BOOK_COVER_BYTES) {
+      coverServiceLogger.warn(
+        { event: "library.cover.fetch.invalid_size", bookStorageKey: input.bookStorageKey, provider: input.provider, sourceUrl: resolvedSourceUrl, byteLength: coverRead.byteLength },
+        "Managed cover fetch returned a too-small or oversized payload",
+      );
+      return { managedUrl: null, sourceUrl: resolvedSourceUrl };
+    }
+
+    if (!hasImageMagicBytes(coverRead.buffer, contentType)) {
+      coverServiceLogger.warn(
+        {
+          event: "library.cover.fetch.invalid_signature",
+          bookStorageKey: input.bookStorageKey,
+          provider: input.provider,
+          sourceUrl: resolvedSourceUrl,
+          contentType,
+          byteLength: coverRead.byteLength,
+        },
+        "Managed cover fetch returned bytes that did not match the declared image type",
+      );
+      return { managedUrl: null, sourceUrl: resolvedSourceUrl };
+    }
+
+    return uploadManagedCover(storage, { bookStorageKey: input.bookStorageKey, provider: input.provider, contentType, coverBuffer: coverRead.buffer, sourceUrl: resolvedSourceUrl });
+  } catch (error: unknown) {
+    coverServiceLogger.warn(
+      { event: "library.cover.fetch.failed", bookStorageKey: input.bookStorageKey, provider: input.provider, sourceUrl, error: toLogError(error) },
       "Managed cover fetch failed, falling back to source URL",
     );
     return { managedUrl: null, sourceUrl };

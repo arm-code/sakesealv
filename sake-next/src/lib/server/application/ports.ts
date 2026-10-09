@@ -7,7 +7,7 @@ import type {
   UserApiKey,
   UserSession,
 } from "@/lib/server/domain/auth";
-import type { Book, UpdateBookMetadataInput } from "@/lib/server/domain/book";
+import type { Book, CreateBookInput, UpdateBookMetadataInput } from "@/lib/server/domain/book";
 import type { BookProgressHistory } from "@/lib/server/domain/book-progress-history";
 import type { Device } from "@/lib/server/domain/device";
 import type { PluginRelease, UpsertPluginReleaseInput } from "@/lib/server/domain/plugin-release";
@@ -59,20 +59,25 @@ export interface ShelfRepositoryPort {
 // GetLibraryBookContentUseCase/SetBookShelvesUseCase (Fase 3f — núcleo),
 // ProgressBookResolver/GetProgressUseCase/UpdateBookRatingUseCase/
 // ListLibraryRatingsUseCase/UpdateLibraryBookStateUseCase (Fase 3g), los 4
-// use-cases de papelera + PurgeExpiredTrashUseCase (Fase 3h), y desde 3i
-// Upload/ImportLibraryBookCoverUseCase (updateMetadata). El resto del
-// original (getAllForStats, getByZLibId*, getByStorageKeyIncludingTrashed,
-// getByTitle*, create, updateHardcoverId, resetDownloadStatus,
-// touchProgressUpdatedAt, getNotDownloadedByDevice,
+// use-cases de papelera + PurgeExpiredTrashUseCase (Fase 3h), desde 3i
+// Upload/ImportLibraryBookCoverUseCase (updateMetadata), y desde la pieza C
+// de adquisición Z-Library DownloadBookUseCase/LibraryImportCollisionService
+// (getByZLibId*, getByStorageKeyIncludingTrashed, create). El resto del
+// original (getAllForStats, getByTitle*, updateHardcoverId,
+// resetDownloadStatus, touchProgressUpdatedAt, getNotDownloadedByDevice,
 // getBooksWithNewProgressForDevice, count) pertenece a mini-fases futuras
-// (adquisición, dispositivos, estadísticas).
+// (dispositivos, estadísticas).
 export interface BookRepositoryPort {
   getAll(): Promise<Book[]>;
   getById(id: number): Promise<Book | undefined>;
   getByIdIncludingTrashed(id: number): Promise<Book | undefined>;
   getByStorageKey(storageKey: string): Promise<Book | undefined>;
+  getByZLibId(zLibId: string): Promise<Book | undefined>;
+  getByZLibIdIncludingTrashed(zLibId: string): Promise<Book | undefined>;
+  getByStorageKeyIncludingTrashed(storageKey: string): Promise<Book | undefined>;
   hasOtherBookWithStorageKey(storageKey: string, excludeBookId: number): Promise<boolean>;
   listStorageKeysWithExternalReferences(storageKeys: string[], excludeBookIds: number[]): Promise<string[]>;
+  create(book: CreateBookInput): Promise<Book>;
   updateMetadata(id: number, metadata: UpdateBookMetadataInput): Promise<Book>;
   updateProgress(bookId: number, progressKey: string, progressPercent: number | null, progressUpdatedAt?: string | null): Promise<void>;
   updateRating(bookId: number, rating: number | null): Promise<void>;
@@ -214,6 +219,10 @@ export interface SearchProviderPort {
 
 export interface SearchProviderDownloadPort extends SearchProviderPort {
   download(input: SearchProviderDownloadInput): Promise<ApiResult<SearchProviderDownloadResult>>;
+}
+
+export function supportsSearchProviderDownload(provider: SearchProviderPort): provider is SearchProviderDownloadPort {
+  return typeof (provider as Partial<SearchProviderDownloadPort>).download === "function";
 }
 
 export interface MigrationStatusSnapshot {
