@@ -40,7 +40,7 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3o — **adquisición Z-Library: búsqueda multi-provider** (pieza B — `SearchProviderRegistry` + 4 providers: Z-Library/Anna's Archive/Gutenberg/OpenLibrary-search + `SearchBooksUseCase` + `LookupSearchBookMetadataUseCase`), verificado contra las APIs/sitios reales (OpenLibrary real, Anna's Archive bloqueado por anti-bot real pero capturado correctamente como fallo per-provider, Gutenberg inalcanzable desde el entorno de esta sesión). Sin descarga/importación todavía (eso es la pieza C).
    - ✅ 3p — **adquisición Z-Library: descarga/importación directa** (pieza C — `DownloadBookUseCase`/`DownloadSearchBookUseCase` + `EpubMetadataService` recortado a solo `rewriteTitle` (~180 líneas, no las 707 completas) + `LibraryImportCollisionService` + `storeManagedBookCoverFromSearchImport` (la pieza que 3i dejó fuera a propósito) + `BookRepository.create`/`CreateBookInput` nuevos), verificado contra servicios reales (descarga real de un EPUB público de archive.org vía `/api/search/download`, `BookRepository.create`/`LibraryImportCollisionService`/`storeManagedBookCoverFromSearchImport`/`EpubMetadataService.rewriteTitle` verificados directo contra DB/S3 reales, intento real de login de Z-Library con credenciales falsas propagando el mismo `ExternalClientError` 400 que 3n/3o ya habían confirmado).
    - ⬜ — **D. Cola de descargas en background** (~900 líneas: `DownloadQueue` + `QueueJobRepository` + use-cases de cola) — depende de A+B+C, y choca con la decisión de arquitectura de jobs de fondo (mismo hueco que plugin sync/Hardcover/trash purge).
-   - ⬜ — **E. `/api/library/[title]` GET/PUT/DELETE** (~290 líneas, el mecanismo por el que providers sin API key de servidor suben el archivo) — depende de C (hecho en 3p). Necesita ampliar `EpubMetadataService` de nuevo (`extractUploadData`/`extractCover`, las ~500 líneas que 3p dejó fuera a propósito) y portar `sanitizeLibraryStorageKey` (el otro helper de `storage-key-sanitizer.ts`, ya portado en 3p pero sin uso todavía).
+   - ✅ 3q — **adquisición Z-Library: `/api/library/[id]` GET/PUT/DELETE** (pieza E — `GetLibraryFileUseCase`/`PutLibraryFileUseCase`/`DeleteLibraryFileUseCase`, requirió ampliar `EpubMetadataService` con `extractUploadData`/`extractCover` — las ~500 líneas que 3p dejó fuera a propósito), verificado con un upload real de un EPUB con metadata y portada embebidas (extraídas correctamente, portada real subida a S3), duplicado rechazado, descarga de los bytes crudos idéntica byte a byte, y limpieza real vía papelera confirmando que S3 queda vacío. **Descubrimiento importante**: en el frontend real, este PUT es un upload manual por drag&drop, no el mecanismo de importar resultados de búsqueda (`sourceImport` solo lo puebla la Pieza D, la cola de descargas, todavía sin portar) — ver sección "Fase 3q" para el detalle. **Con esto el troceo A-E de adquisición Z-Library real queda completo**; solo falta la Pieza D (cola de descargas en background).
    - ⬜ — **F. Device-download tracking** (`GetNewBooksForDeviceUseCase`, `ConfirmDownloadUseCase`, etc. + `ExportDeviceLibraryBookUseCase`) — pertenece más a la futura mini-fase de sync de dispositivos KOReader (mismo bloqueador de auth dual que 3g) que a adquisición.
    - ⬜ — sync de progreso de dispositivos KOReader (ligado a device-pairing). Después de eso: OPDS, DAV, annotations, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
@@ -2111,6 +2111,132 @@ backend-only que el resto de library/books y de adquisición Z-Library.
 
 ---
 
+## Fase 3q — Detalle de lo hecho (COMPLETA)
+
+**Pieza E del troceo de adquisición Z-Library real: `/api/library/[id]`
+GET/PUT/DELETE — la última pieza del troceo A-E.** Scoping dedicado antes
+de escribir código, leyendo `GetLibraryFileUseCase`/`PutLibraryFileUseCase`
+(ya leído en 3p)/`DeleteLibraryFileUseCase` + la ruta original + quién la
+llama realmente desde el frontend.
+
+### Descubrimiento: `sourceImport` es, en la práctica, código muerto hasta que exista la Pieza D
+La descripción de la sesión de scoping original ("el mecanismo por el que
+providers sin API key de servidor suben el archivo") describe el flujo de
+`DownloadQueue.executeSearchImportTask` (**Pieza D**, la cola de descargas
+en background, todavía bloqueada por la decisión de arquitectura de jobs
+de fondo) — es el **único** lugar del original que puebla el parámetro
+`sourceImport` de `PutLibraryFileUseCase.execute()`. Confirmado con grep
+exhaustivo: el cliente real (`uploadLibraryBookFile.ts` →
+`libraryUploadController.svelte.ts`, el drag&drop de la UI de biblioteca)
+llama al PUT **sin** `sourceImport` — es un upload manual de un archivo
+local, sin relación con resultados de búsqueda. Se decidió con el usuario
+portar `PutLibraryFileUseCase` completo igual que el original (incluyendo
+el parámetro `sourceImport`, aunque hoy nadie lo puebla) — la firma lo
+necesita de todas formas y es la misma pieza de código, no algo
+recortable aparte.
+
+### Gotcha real de Next.js (nuevo, no documentado antes): nombres de segmento dinámico deben coincidir entre sibling routes
+Se creó primero una carpeta `/api/library/[title]/route.ts` separada de
+`/api/library/[id]/` (que ya tenía subcarpetas para `detail`/`content`/
+`shelves`/etc.). **Compiló limpio** (`bun run build` no detectó nada), pero
+**falló en runtime** al primer request: `Error: You cannot use different
+slug names for the same dynamic path ('id' !== 'title')`. A diferencia de
+SvelteKit (donde cada ruta puede nombrar su parámetro dinámico como
+quiera), Next.js App Router exige que todos los sibling routes al mismo
+nivel de anidación usen el mismo nombre de segmento dinámico, y **ese
+chequeo no es un error de build — es un `unhandledRejection` en el primer
+request real**. Solución: se movió el `route.ts` a
+`/api/library/[id]/route.ts` (reutilizando la carpeta existente, que ya
+convive con sus subcarpetas sin problema — Next.js sí permite un
+`route.ts` propio en un segmento que también tiene subcarpetas), y se
+destructura `{ id: title }` para mantener la claridad semántica en el
+código (el valor es un storage key/filename arbitrario, no un id
+numérico, a diferencia de sus sibling routes). **Si vuelves a crear una
+carpeta de ruta dinámica nueva bajo un path que ya tiene un segmento
+dinámico con otro nombre, usa el mismo nombre** — y verifica contra el
+servidor real corriendo (`bun run start` + request real), no solo
+`bun run build`, porque este error específico no aparece en build.
+
+### Lo que se portó
+- `EpubMetadataService` ganó `extractMetadata`/`extractUploadData`/
+  `extractCover`/`resolveCoverReference` (con sus 4 estrategias de
+  resolución de portada: por `<meta name="cover">`, por propiedad
+  `cover-image` del manifest, por `<guide><reference type="cover">`
+  incluyendo el caso de referencia a un documento HTML con `<img>`
+  anidado, y por nombre de archivo/id que contenga "cover") + todos los
+  helpers de parsing XML puro que le faltaban (`extractTagValues`/
+  `pickAuthor`/`pickIdentifier`/`pickPublicationDate`/
+  `normalizeLanguage`/etc.) — verbatim, cerrando el archivo completo
+  (707 líneas del original, ahora igual en `sake-next`).
+- `GetLibraryFileUseCase`/`DeleteLibraryFileUseCase` — triviales, puerto
+  1:1 sobre `storage` directo.
+- `PutLibraryFileUseCase` — puerto 1:1, incluyendo la detección de
+  colisión por storage key (`LibraryImportCollisionService.findStorageKeyMatch`,
+  3p), extracción de metadata/portada embebida si es un EPUB, lookup de
+  metadata externa (reusa `ExternalBookMetadataService`), y creación del
+  libro (`BookRepository.create`, 3p). `ManagedCoverStorage` se tipó como
+  un objeto con `storeFromBuffer`/`storeFromSearchImport` (funciones
+  sueltas de `managed-book-cover.ts`, mismo patrón que `DownloadBookUseCase`
+  en 3p) en vez de un `Pick<ManagedBookCoverService, ...>`.
+- `QueueableSearchProviderId` (`SearchProviderId` sin `"zlibrary"`) añadido
+  a `types/search.ts` — en el original vive en `QueueSearchBookRequest.ts`
+  (Pieza D, sin portar); se definió aquí porque `PutLibraryFileUseCase` es
+  su único consumidor real por ahora.
+- Ruta `/api/library/[id]/route.ts` (GET/PUT/DELETE) con `requireSession()`
+  — ver el gotcha de Next.js arriba sobre por qué vive en esta carpeta.
+  El GET del original soporta sesión **o** API key de dispositivo
+  (`isApiKeyAllowedRoute` permite GET ahí); se portó **solo** la rama de
+  sesión — la rama de API key queda diferida a la futura mini-fase de
+  sync de dispositivos KOReader (mismo bloqueador exacto que
+  `PutProgress`/`GetProgress` en 3g).
+- `composition.ts` — `getLibraryFileUseCase`/`putLibraryFileUseCase`/
+  `deleteLibraryFileUseCase` wireados, reutilizando
+  `storeManagedBookCoverFromBuffer` (3i)/`storeManagedBookCoverFromSearchImport`
+  (3p) como el objeto `ManagedCoverStorage`.
+
+### Verificación
+`bun run build` limpio (51 rutas). Puerto 3000 libre, `sake-seaweedfs`
+reutilizado (seguía corriendo de la sesión de 3p). Sesión real creada con
+script desechable (`_seed-session-3q.ts`, borrado al terminar). Contra el
+build de producción real (`bun run start`) con `curl` y sesión real:
+- GET/PUT/DELETE sin sesión → 401 los tres.
+- GET de archivo inexistente → 404 "File not found"; PUT con body vacío
+  → 400 "Uploaded file is empty".
+- **Upload real con un EPUB construido en memoria** (`JSZip`, con
+  `<dc:title>`/`<dc:creator>`/`<dc:publisher>`/`<dc:identifier>`/
+  `<dc:language>`/`<dc:date>` reales + `<meta name="cover">` apuntando a
+  una imagen en el manifest) con una portada embebida de prueba de solo
+  369 bytes → 200, pero la portada se rechazó correctamente
+  (`library.cover.buffer.invalid_size`, por debajo de
+  `MIN_MANAGED_BOOK_COVER_BYTES` = 1024) — confirma que el chequeo de
+  tamaño mínimo sigue vigente sobre portadas embebidas, no solo sobre
+  las importadas por URL (3i). Reintentado con una portada real
+  descargada de `covers.openlibrary.org` (25,324 bytes reales) → 200,
+  **esta vez con portada real**: `cover` quedó con una URL versionada
+  (`/api/library/covers/....jpg?v=<hash>`), confirmada contra S3 real
+  (`GET` a esa URL devolvió 200, exactamente 25,324 bytes,
+  `Content-Type: image/jpeg`). `title`/`author`/`publisher`/`identifier`/
+  `language`/`year`/`month`/`day` quedaron todos extraídos correctamente
+  del OPF real (confirmado contra `GET /api/library/list`).
+- **Duplicado real**: subir el mismo archivo otra vez → 409 "Book already
+  exists in library".
+- **GET de los bytes crudos subidos**: idénticos byte a byte al archivo
+  original (confirmado con `cmp`).
+- Limpieza: ambos libros de prueba trasheados + borrados permanentemente
+  (3h); confirmado con un script desechable que ni el archivo principal
+  ni la portada quedaron en S3 (`storage.list` devolvió `[]` para ambos
+  prefijos).
+
+**Con esto el troceo completo A→B→C→E de adquisición Z-Library real
+(3n→3o→3p→3q) queda cerrado.** Solo falta la Pieza D (cola de descargas en
+background), bloqueada por la misma decisión de arquitectura de jobs de
+fondo que el sync del plugin (3c)/Hardcover/purga de trash (3h).
+
+No se tocó `/library` ni se montó ninguna UI — mismo criterio
+backend-only que el resto de library/books y de adquisición Z-Library.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2129,13 +2255,17 @@ Pega esto al iniciar:
 > proveedores + agregador/ranking + búsqueda de candidatos), edición
 > manual de metadata, refetch automático, y aplicar candidato (esta última
 > con una ruta HTTP nueva inventada — el use-case estaba huérfano en el
-> original). **Las piezas A, B y C de adquisición Z-Library real también
-> están cerradas** — 3n (login real, reemplaza el submit mock de Z-Library
+> original). **El troceo completo A-E de adquisición Z-Library real ya
+> está cerrado** — 3n (login real, reemplaza el submit mock de Z-Library
 > de la Fase 2d), 3o (búsqueda multi-provider: Z-Library/Anna's Archive/
-> Gutenberg/OpenLibrary, verificado contra servicios reales), y 3p
+> Gutenberg/OpenLibrary, verificado contra servicios reales), 3p
 > (descarga/importación directa síncrona — `DownloadBookUseCase`/
 > `DownloadSearchBookUseCase`, verificado con una descarga real completa
-> de un EPUB público de archive.org vía `/api/search/download`). Con 3n,
+> de un EPUB público de archive.org vía `/api/search/download`), y 3q
+> (`/api/library/[id]` GET/PUT/DELETE — upload manual real, verificado con
+> un EPUB con metadata y portada embebidas reales). **Solo falta la Pieza
+> D** (cola de descargas en background), bloqueada por la misma decisión
+> de arquitectura de jobs de fondo pendiente desde 3a/3c/3h. Con 3n,
 > el Settings modal queda 100% real salvo Hardcover (bloqueado, ver abajo).
 > Notas importantes ya resueltas (secciones "Fase 3a-3i — Detalle de lo
 > hecho"): en Next 16 el archivo se llama `proxy.ts`, no `middleware.ts` —
@@ -2234,11 +2364,12 @@ Pega esto al iniciar:
 > (hecho en 3o)** → C. descarga/importación directa síncrona (~1,350
 > líneas, hecho en 3p: `DownloadBookUseCase`/`DownloadSearchBookUseCase` +
 > `EpubMetadataService` recortado a solo `rewriteTitle` (~180 líneas, no
-> las 707 completas — el resto, `extractUploadData`/`extractCover`, lo
-> necesita la pieza E, no C) + `storeManagedBookCoverFromSearchImport` que
-> 3i dejó fuera + `BookRepository.create` nuevo) → E.
-> `/api/library/[title]` GET/PUT/DELETE (~290 líneas, depende de C — ya
-> hecho). Quedan fuera del troceo A-E: **D. cola de descargas en
+> las 707 completas) + `storeManagedBookCoverFromSearchImport` que 3i dejó
+> fuera + `BookRepository.create` nuevo) → **E. `/api/library/[id]`
+> GET/PUT/DELETE (hecho en 3q — requirió ampliar `EpubMetadataService` con
+> `extractUploadData`/`extractCover`, cerrando el archivo completo).**
+> **El troceo A-E de adquisición Z-Library real queda cerrado por
+> completo.** Queda fuera del troceo: **D. cola de descargas en
 > background** (~900 líneas, choca con la decisión de arquitectura de
 > jobs de fondo todavía pendiente de 3a/3c/3h) y **F. device-download
 > tracking** (pertenece más a la futura mini-fase de sync de dispositivos
@@ -2250,14 +2381,24 @@ Pega esto al iniciar:
 > `download()`** (de los 4 search providers, solo OpenLibrary/Gutenberg/
 > Anna's Archive lo hacen) — las descargas de Z-Library van siempre por
 > `DownloadBookUseCase`/`/api/zlibrary/download`, nunca por
-> `DownloadSearchBookUseCase`/`/api/search/download`. Para lo que sigas
-> ahora: **E (`/api/library/[title]`)** es el siguiente paso natural del
-> troceo A→B→C→E (necesita ampliar `EpubMetadataService` de nuevo y portar
-> `sanitizeLibraryStorageKey`, ya en `storage-key-sanitizer.ts` desde 3p
-> pero sin uso todavía), o la mini-fase de sync de dispositivos KOReader /
-> la decisión de jobs de fondo si prefieres cerrar esos huecos antes. Nota
-> operativa de 3o/3p: `gutendex.com` (Gutenberg) y `openlibrary.org` (el
-> dominio de búsqueda, no el de portadas `covers.openlibrary.org`) han
+> `DownloadSearchBookUseCase`/`/api/search/download`. **La Fase 3q
+> encontró un gotcha real de Next.js 16**: dos sibling routes dinámicos
+> con nombres de segmento distintos (`[id]` y `[title]`) al mismo nivel
+> compilan limpio con `bun run build` pero fallan en **runtime** con
+> `Error: You cannot use different slug names for the same dynamic path`
+> — hay que usar el mismo nombre de segmento que los sibling routes ya
+> existentes y verificar siempre contra el servidor real corriendo, no
+> solo el build. También confirmó que `sourceImport` de
+> `PutLibraryFileUseCase` es código muerto en la práctica hasta que exista
+> la Pieza D — el único flujo real hoy (drag&drop manual) nunca lo puebla.
+> Para lo que sigas ahora: la mini-fase de sync de dispositivos KOReader
+> (cierra `PutProgress`/`GetProgress` de 3g + `CreateDeviceApiKeyUseCase`
+> de 3b + la rama de API key de GET `/api/library/[id]` que 3q dejó fuera +
+> probablemente F) o la decisión de arquitectura de jobs de fondo (D y los
+> 3 use-cases ya esperando desde 3a/3c/3h) son los próximos huecos
+> conocidos — ya no queda nada pendiente del troceo de adquisición en sí.
+> Nota operativa de 3o/3p: `gutendex.com` (Gutenberg) y `openlibrary.org`
+> (el dominio de búsqueda, no el de portadas `covers.openlibrary.org`) han
 > resultado inalcanzables en sesiones recientes — si vuelves a tocar esos
 > providers, confirma primero si el entorno actual tiene salida a esos
 > dominios antes de asumir que algo se rompió. **No asumas que cabe igual

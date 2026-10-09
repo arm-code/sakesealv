@@ -2,6 +2,13 @@ export const SEARCH_PROVIDER_IDS = ["zlibrary", "anna", "openlibrary", "gutenber
 
 export type SearchProviderId = (typeof SEARCH_PROVIDER_IDS)[number];
 
+// Usado por PutLibraryFileUseCase (Fase 3 — pieza E): Z-Library nunca sube
+// por este flujo genérico (va por DownloadBookUseCase directo), así que su
+// metadata de importación de búsqueda excluye ese provider. En el original
+// vive en `QueueSearchBookRequest.ts` (pieza D, la cola de descargas,
+// todavía sin portar) — se define aquí porque es el único consumidor real.
+export type QueueableSearchProviderId = Exclude<SearchProviderId, "zlibrary">;
+
 export interface SearchProviderCapabilities {
   filesAvailable: boolean;
   metadataCompleteness: "low" | "medium" | "high";

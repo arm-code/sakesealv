@@ -20,13 +20,15 @@
 // "search providers" (Anna's Archive/Gutenberg/OpenLibrary-search/
 // Z-Library-search) — es un subsistema aparte para *buscar libros para
 // descargar*, pertenece a la adquisición Z-Library real, no a metadata
-// providers. La adquisición Z-Library real (login 3n, búsqueda 3o,
-// descarga/importación directa 3p/pieza C) también está wireada —
-// `downloadBookUseCase`/`downloadSearchBookUseCase`. Quedan fuera del
-// troceo de adquisición: D (cola de descargas en background, mismo hueco
-// de arquitectura de jobs de fondo) y E (`/api/library/[title]`, el PUT
-// que sube el archivo para providers sin API key de servidor). Cuando se
-// migren más features, extender este archivo (igual que el original
+// providers. La adquisición Z-Library real está cerrada por completo
+// (A/3n login, B/3o búsqueda, C/3p descarga/importación directa, E/3q
+// `/api/library/[id]` — GET/PUT/DELETE sobre el archivo crudo por
+// storage key, el upload manual real) —
+// `downloadBookUseCase`/`downloadSearchBookUseCase`/
+// `getLibraryFileUseCase`/`putLibraryFileUseCase`/`deleteLibraryFileUseCase`.
+// Solo queda fuera del troceo **D** (cola de descargas en background,
+// choca con el hueco de arquitectura de jobs de fondo). Cuando se migren
+// más features, extender este archivo (igual que el original
 // `composition.ts` barrel, pero sin arrastrar subsistemas que aún no
 // existen en sake-next: cola de descargas, annotations, sync de
 // dispositivos...).
@@ -118,6 +120,10 @@ import { storeManagedBookCoverFromSearchImport } from "@/lib/server/application/
 import { mimeTypes } from "@/lib/server/constants/mime-types";
 import { DownloadBookUseCase } from "@/lib/server/application/use-cases/download-book";
 import { DownloadSearchBookUseCase } from "@/lib/server/application/use-cases/download-search-book";
+import { GetLibraryFileUseCase } from "@/lib/server/application/use-cases/get-library-file";
+import { PutLibraryFileUseCase } from "@/lib/server/application/use-cases/put-library-file";
+import { DeleteLibraryFileUseCase } from "@/lib/server/application/use-cases/delete-library-file";
+import { storeManagedBookCoverFromBuffer } from "@/lib/server/application/services/managed-book-cover";
 
 export const userRepository = new UserRepository();
 export const userSessionRepository = new UserSessionRepository();
@@ -282,3 +288,16 @@ export const downloadBookUseCase = new DownloadBookUseCase(
   importCollisionService,
 );
 export const downloadSearchBookUseCase = new DownloadSearchBookUseCase(allSearchProviderInstances);
+
+// Pieza E del troceo de adquisición Z-Library real — `/api/library/[title]`
+// (3p dejó el GET/PUT/DELETE de esta ruta deliberadamente fuera). En el
+// frontend real, PUT es el upload manual por drag&drop
+// (`libraryUploadController.svelte.ts`) — nunca pasa `sourceImport`; el
+// único consumidor que sí lo puebla es `DownloadQueue` (pieza D, la cola de
+// descargas en background, todavía sin portar).
+export const getLibraryFileUseCase = new GetLibraryFileUseCase(storage);
+export const putLibraryFileUseCase = new PutLibraryFileUseCase(storage, bookRepository, {
+  storeFromBuffer: (input) => storeManagedBookCoverFromBuffer(storage, input),
+  storeFromSearchImport: (input) => storeManagedBookCoverFromSearchImport(storage, input, () => zlibraryMirrorSettingsRepository.get()),
+});
+export const deleteLibraryFileUseCase = new DeleteLibraryFileUseCase(storage);
