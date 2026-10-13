@@ -8,10 +8,10 @@
 // y el dominio completo de metadata providers (3j-3m: núcleo — los 4
 // proveedores + agregador/ranking + búsqueda de candidatos —, edición
 // manual, refetch automático, y aplicar candidato) están wireados. El
-// sync de progreso de dispositivos KOReader (PutProgress/GetProgress)
-// sigue fuera a propósito — necesita un mecanismo de auth dual (sesión o
-// API key de dispositivo) ligado al device-pairing todavía sin portar
-// (CreateDeviceApiKeyUseCase). `purgeExpiredTrashUseCase` está wireado
+// sync de dispositivos KOReader (3r: pairing device-key, progress GET/PUT/
+// new/confirm, library/new, confirmDownload, header Sake-Version) también,
+// vía auth dual (sesión o API key — auth/require-actor.ts). Siguen fuera
+// export/devices-version/devices-logs/OPDS/DAV. `purgeExpiredTrashUseCase` está wireado
 // pero sin ruta ni cron — en el original se dispara desde hooks.server.ts
 // por intervalo, mismo hueco de arquitectura que el sync del plugin
 // (3c)/Hardcover. `applyMetadataCandidateUseCase` (3m) se invoca desde una
@@ -64,6 +64,14 @@ import { ClearBasicAuthPasswordUseCase } from "@/lib/server/application/use-case
 import { ListActiveApiKeysUseCase } from "@/lib/server/application/use-cases/list-active-api-keys";
 import { RevokeApiKeyUseCase } from "@/lib/server/application/use-cases/revoke-api-key";
 import { ListDevicesUseCase } from "@/lib/server/application/use-cases/list-devices";
+import { CreateDeviceApiKeyUseCase } from "@/lib/server/application/use-cases/create-device-api-key";
+import { ReportDeviceVersionUseCase } from "@/lib/server/application/use-cases/report-device-version";
+import { GetProgressUseCase } from "@/lib/server/application/use-cases/get-progress";
+import { PutProgressUseCase } from "@/lib/server/application/use-cases/put-progress";
+import { GetNewBooksForDeviceUseCase } from "@/lib/server/application/use-cases/get-new-books-for-device";
+import { GetNewProgressForDeviceUseCase } from "@/lib/server/application/use-cases/get-new-progress-for-device";
+import { ConfirmDownloadUseCase } from "@/lib/server/application/use-cases/confirm-download";
+import { ConfirmProgressDownloadUseCase } from "@/lib/server/application/use-cases/confirm-progress-download";
 import { DeleteDeviceUseCase } from "@/lib/server/application/use-cases/delete-device";
 import { ListShelvesUseCase } from "@/lib/server/application/use-cases/list-shelves";
 import { CreateShelfUseCase } from "@/lib/server/application/use-cases/create-shelf";
@@ -198,6 +206,16 @@ export const updateLibraryBookStateUseCase = new UpdateLibraryBookStateUseCase(b
 const progressBookResolver = new ProgressBookResolver(bookRepository);
 const progressPersistenceService = new ProgressPersistenceService(bookRepository, bookProgressHistoryRepository, storage, deviceProgressDownloadRepository);
 export const putWebReaderProgressUseCase = new PutWebReaderProgressUseCase(progressBookResolver, storage, progressPersistenceService, sidecarWriteCoordinator);
+
+// Fase 3r: sync de dispositivos KOReader (auth dual sesión/API key).
+export const createDeviceApiKeyUseCase = new CreateDeviceApiKeyUseCase(userRepository, userApiKeyRepository, deviceRepository);
+export const reportDeviceVersionUseCase = new ReportDeviceVersionUseCase(deviceRepository);
+export const getProgressUseCase = new GetProgressUseCase(bookRepository, storage);
+export const putProgressUseCase = new PutProgressUseCase(progressBookResolver, progressPersistenceService, sidecarWriteCoordinator);
+export const getNewBooksForDeviceUseCase = new GetNewBooksForDeviceUseCase(bookRepository);
+export const getNewProgressForDeviceUseCase = new GetNewProgressForDeviceUseCase(bookRepository);
+export const confirmDownloadUseCase = new ConfirmDownloadUseCase(deviceDownloadRepository);
+export const confirmProgressDownloadUseCase = new ConfirmProgressDownloadUseCase(bookRepository, deviceProgressDownloadRepository);
 
 export const listLibraryTrashUseCase = new ListLibraryTrashUseCase(bookRepository);
 export const moveLibraryBookToTrashUseCase = new MoveLibraryBookToTrashUseCase(bookRepository);

@@ -1,5 +1,5 @@
 import { getLibraryCoverUseCase } from "@/lib/server/application/composition";
-import { requireSession } from "@/lib/server/auth/require-session";
+import { requireActor } from "@/lib/server/auth/require-actor";
 import { errorResponse } from "@/lib/server/http/api";
 import { logger, toLogError } from "@/lib/server/infrastructure/logging/logger";
 
@@ -7,8 +7,9 @@ interface RouteParams {
   params: Promise<{ fileName: string }>;
 }
 
-export async function GET(_request: Request, { params }: RouteParams) {
-  const auth = await requireSession();
+// Sesión O API key (isApiKeyAllowedRoute permite GET /api/library/covers/*).
+export async function GET(request: Request, { params }: RouteParams) {
+  const auth = await requireActor(request);
   if ("response" in auth) return auth.response;
 
   const { fileName } = await params;

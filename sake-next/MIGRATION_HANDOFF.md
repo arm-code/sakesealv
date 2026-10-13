@@ -41,8 +41,8 @@ sin saltar a la siguiente hasta cerrar la actual.
    - ✅ 3p — **adquisición Z-Library: descarga/importación directa** (pieza C — `DownloadBookUseCase`/`DownloadSearchBookUseCase` + `EpubMetadataService` recortado a solo `rewriteTitle` (~180 líneas, no las 707 completas) + `LibraryImportCollisionService` + `storeManagedBookCoverFromSearchImport` (la pieza que 3i dejó fuera a propósito) + `BookRepository.create`/`CreateBookInput` nuevos), verificado contra servicios reales (descarga real de un EPUB público de archive.org vía `/api/search/download`, `BookRepository.create`/`LibraryImportCollisionService`/`storeManagedBookCoverFromSearchImport`/`EpubMetadataService.rewriteTitle` verificados directo contra DB/S3 reales, intento real de login de Z-Library con credenciales falsas propagando el mismo `ExternalClientError` 400 que 3n/3o ya habían confirmado).
    - ⬜ — **D. Cola de descargas en background** (~900 líneas: `DownloadQueue` + `QueueJobRepository` + use-cases de cola) — depende de A+B+C, y choca con la decisión de arquitectura de jobs de fondo (mismo hueco que plugin sync/Hardcover/trash purge).
    - ✅ 3q — **adquisición Z-Library: `/api/library/[id]` GET/PUT/DELETE** (pieza E — `GetLibraryFileUseCase`/`PutLibraryFileUseCase`/`DeleteLibraryFileUseCase`, requirió ampliar `EpubMetadataService` con `extractUploadData`/`extractCover` — las ~500 líneas que 3p dejó fuera a propósito), verificado con un upload real de un EPUB con metadata y portada embebidas (extraídas correctamente, portada real subida a S3), duplicado rechazado, descarga de los bytes crudos idéntica byte a byte, y limpieza real vía papelera confirmando que S3 queda vacío. **Descubrimiento importante**: en el frontend real, este PUT es un upload manual por drag&drop, no el mecanismo de importar resultados de búsqueda (`sourceImport` solo lo puebla la Pieza D, la cola de descargas, todavía sin portar) — ver sección "Fase 3q" para el detalle. **Con esto el troceo A-E de adquisición Z-Library real queda completo**; solo falta la Pieza D (cola de descargas en background).
-   - ⬜ — **F. Device-download tracking** (`GetNewBooksForDeviceUseCase`, `ConfirmDownloadUseCase`, etc. + `ExportDeviceLibraryBookUseCase`) — pertenece más a la futura mini-fase de sync de dispositivos KOReader (mismo bloqueador de auth dual que 3g) que a adquisición.
-   - ⬜ — sync de progreso de dispositivos KOReader (ligado a device-pairing). Después de eso: OPDS, DAV, annotations, stats, logs streaming, device pairing (CreateDeviceApiKeyUseCase)...
+   - ✅ 3r — **sync de dispositivos KOReader** (auth dual sesión/API key vía `requireActor()`, `POST /api/auth/device-key` + `CreateDeviceApiKeyUseCase`, `GET/PUT /api/library/progress`, `progress/new`, `progress/confirm`, `library/new`, `library/confirmDownload` = pieza F, rama API key en `GET /api/library/[id]` y `covers/[fileName]`, sync de `Sake-Version` por header), verificado end-to-end con curl contra el servidor real y S3 real. Ver sección "Fase 3r".
+   - ⬜ — **Fuera de 3r a propósito:** `POST /api/library/export` (`ExportDeviceLibraryBookUseCase`, 249 líneas — depende de `AnnotationIndexService`/`HardcoverProgressSyncPort`, que no existen), `POST /api/devices/version` y `/api/devices/logs` (streaming SSE de logs), `/api/library/[id]/downloads*`. Después: OPDS, DAV, annotations, stats...
 4. ⬜ **Fase 4 — Páginas y layouts completos, mobile-first.**
 
 ---
@@ -2237,6 +2237,58 @@ backend-only que el resto de library/books y de adquisición Z-Library.
 
 ---
 
+## Fase 3r — Detalle de lo hecho (COMPLETA)
+
+**Sync de dispositivos KOReader.** Cierra lo diferido de 3b (`CreateDeviceApiKeyUseCase`),
+3g (`PutProgress`/`GetProgress`), 3q (rama API key de `GET /api/library/[id]`) y la
+pieza F del scoping de adquisición (device-download tracking), salvo `export`.
+
+### Diseño de auth dual: allowlist POR RUTA
+- `src/lib/server/auth/require-actor.ts` — `requireActor(request)`: cookie de sesión
+  **o** header `x-api-key`; devuelve `{ actor: AuthActor }` (session | api_key). Si el
+  actor es api_key y manda `Sake-Version`, sincroniza la versión del device
+  (`ReportDeviceVersionUseCase`, `skipIfUnchanged`, best-effort — equivale a
+  `syncDeviceVersionFromHeader` del hooks.server.ts original).
+- La allowlist `isApiKeyAllowedRoute` del original (por pathname, centralizada) se
+  resuelve aquí por convención: **solo las rutas que llaman `requireActor()` aceptan API
+  key**: `library/new`, `confirmDownload`, `progress` (GET/PUT), `progress/new`,
+  `progress/confirm`, `GET library/[id]` (archivo crudo), `GET library/covers/[fileName]`.
+  Todo lo demás sigue en `requireSession()`, que ahora responde **403 "API key is not
+  allowed for this route"** si llega una API key válida (paridad con el original; antes
+  daba 401). Al añadir una ruta nueva que el plugin KOReader deba usar, hay que usar
+  `requireActor()` — no hay lista central que actualizar.
+- `src/lib/server/auth/device-binding.ts` — `resolveAuthorizedDeviceId(actor, supplied,
+  {required})`: api_key solo opera sobre su device atado (403 si manda otro, usa el atado
+  si no manda ninguno); sesión usa el que mande (400 si `required` y falta).
+
+### Piezas portadas
+- Use-cases: `create-device-api-key`, `report-device-version`, `get-progress`,
+  `put-progress`, `get-new-books-for-device`, `get-new-progress-for-device`,
+  `confirm-download`, `confirm-progress-download` + `services/device-version.ts`.
+- Repos ampliados: `DeviceRepository.upsert/getByDeviceId`,
+  `DeviceDownloadRepository.create`, `DeviceProgressDownloadRepository.upsertByDeviceAndBook`
+  ahora **devuelve el registro** (antes `void`; `ProgressPersistenceService` lo ignora),
+  `BookRepository.getNotDownloadedByDevice/getBooksWithNewProgressForDevice`.
+- `rate-limit.ts`: políticas `deviceKeyIp` (10/10min) y `deviceKeyUserDevice` (8/10min).
+- `POST /api/auth/device-key` es pública (como `isPublicApiRoute` en el original).
+
+### Cosas a saber
+- `ConfirmDownloadUseCase` es `create` plano, igual que el original: confirmar dos veces
+  el mismo libro/device inserta filas duplicadas en `DeviceDownloads` (la tabla no tiene
+  unique). Es comportamiento heredado, no un bug de la migración; `getNotDownloaded...` usa
+  left-join + `isNull`, así que no afecta el resultado.
+- El rate limit es en memoria (se resetea al reiniciar el proceso) — igual que 3a.
+- **Verificación:** build limpio + curl contra `bun run start` real: pairing (401 con
+  credenciales malas, 201 válido), key atada a device (403 con deviceId ajeno), `new` →
+  `confirmDownload` → desaparece solo para ese device, PUT de sidecar `.lua` real a S3,
+  GET del mismo, `progress/new` (el device que subió no lo ve, el otro sí) → `confirm` →
+  desaparece, archivo crudo con API key, 403 en list/detail/content/devices/me/shelves y
+  PUT de archivo, 401 con key inválida, sesión por cookie (200 con deviceId / 400 sin él),
+  versión del plugin actualizada por header, y 429 tras 8 intentos de device-key. Datos
+  sembrados con script desechable y limpiados (DB + S3) al terminar.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2412,6 +2464,15 @@ Pega esto al iniciar:
 > por Playwright-contra-UI — eso vuelve cuando la Fase 4 construya la
 > página real. La única excepción ya ocurrida es 3n: como el login de
 > Z-Library ya tenía UI real esperando desde la Fase 2d, esa sesión sí tocó
-> componentes de UI existentes (no una página nueva de Fase 4). Plantea el
-> alcance de lo que sea que sigue antes de escribir nada, mismo patrón que
-> siempre.
+> componentes de UI existentes (no una página nueva de Fase 4).
+>
+> **ACTUALIZACIÓN 3r:** la mini-fase de sync de dispositivos KOReader ya
+> está hecha (ver "Fase 3r"): hay `requireActor()` (sesión o `x-api-key`,
+> allowlist por ruta), pairing `device-key`, progress GET/PUT/new/confirm,
+> `library/new`, `confirmDownload`. `requireSession()` ahora da 403 a las
+> API keys. **Ya no es cierto** que `CreateDeviceApiKeyUseCase`/PutProgress
+> estén sin portar. Quedan como huecos conocidos: `POST /api/library/export`,
+> `/api/devices/version`, `/api/devices/logs`, OPDS, DAV, annotations,
+> stats, y la decisión de arquitectura de jobs de fondo (Pieza D + purga de
+> papelera + plugin sync + Hardcover). Plantea el alcance de lo que sea que
+> sigue antes de escribir nada, mismo patrón que siempre.

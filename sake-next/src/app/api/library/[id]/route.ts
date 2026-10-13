@@ -1,4 +1,5 @@
 import { deleteLibraryFileUseCase, getLibraryFileUseCase, putLibraryFileUseCase } from "@/lib/server/application/composition";
+import { requireActor } from "@/lib/server/auth/require-actor";
 import { requireSession } from "@/lib/server/auth/require-session";
 import { errorResponse } from "@/lib/server/http/api";
 import { logger, toLogError } from "@/lib/server/infrastructure/logging/logger";
@@ -16,13 +17,10 @@ interface RouteParams {
 }
 
 // GET soporta sesión O API key de dispositivo en el original
-// (isApiKeyAllowedRoute permite GET sobre /api/library/<archivo>). Solo se
-// porta la rama de sesión aquí — la rama de API key queda diferida a la
-// futura mini-fase de sync de dispositivos KOReader (mismo bloqueador que
-// PutProgress/GetProgress en 3g: requireSession() rechaza actors que no
-// sean "session").
+// (isApiKeyAllowedRoute permite GET sobre /api/library/<archivo>); PUT y
+// DELETE son solo sesión. La rama de API key se agregó en 3r.
 export async function GET(request: Request, { params }: RouteParams) {
-  const auth = await requireSession();
+  const auth = await requireActor(request);
   if ("response" in auth) return auth.response;
 
   const { id: title } = await params;

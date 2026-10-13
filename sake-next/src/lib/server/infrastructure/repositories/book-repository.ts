@@ -1,10 +1,10 @@
 import type { BookRepositoryPort } from "@/lib/server/application/ports";
 import type { Book, CreateBookInput, UpdateBookMetadataInput } from "@/lib/server/domain/book";
 import { drizzleDb } from "@/lib/server/infrastructure/db/client";
-import { books } from "@/lib/server/infrastructure/db/schema";
+import { books, deviceDownloads, deviceProgressDownloads } from "@/lib/server/infrastructure/db/schema";
 import { createChildLogger } from "@/lib/server/infrastructure/logging/logger";
 import { bookSelection, bookSelectionWithDownloadState, mapBookRow, mapBookWithDownloadRow, toCreateBookRow, toUpdateBookMetadataRow } from "./book-repository.helpers";
-import { and, desc, eq, inArray, isNotNull, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 
 export class BookRepository implements BookRepositoryPort {
   private readonly repoLogger = createChildLogger({ repository: "BookRepository" });
@@ -17,6 +17,35 @@ export class BookRepository implements BookRepositoryPort {
       .orderBy(desc(books.createdAt));
 
     return rows.map((row) => mapBookWithDownloadRow(row));
+  }
+
+  async getNotDownloadedByDevice(deviceId: string): Promise<Book[]> {
+    const rows = await drizzleDb
+      .select(bookSelection)
+      .from(books)
+      .leftJoin(deviceDownloads, and(eq(books.id, deviceDownloads.bookId), eq(deviceDownloads.deviceId, deviceId)))
+      .where(and(isNull(deviceDownloads.bookId), isNull(books.deletedAt), isNull(books.archivedAt), eq(books.excludeFromNewBooks, false)))
+      .orderBy(desc(books.createdAt));
+
+    return rows.map((row) => mapBookRow(row));
+  }
+
+  async getBooksWithNewProgressForDevice(deviceId: string): Promise<Book[]> {
+    const rows = await drizzleDb
+      .select(bookSelection)
+      .from(books)
+      .leftJoin(deviceProgressDownloads, and(eq(books.id, deviceProgressDownloads.bookId), eq(deviceProgressDownloads.deviceId, deviceId)))
+      .where(
+        and(
+          isNull(books.deletedAt),
+          isNotNull(books.progressStorageKey),
+          isNotNull(books.progressUpdatedAt),
+          or(isNull(deviceProgressDownloads.id), sql`${deviceProgressDownloads.progressUpdatedAt} < ${books.progressUpdatedAt}`),
+        ),
+      )
+      .orderBy(desc(books.progressUpdatedAt), desc(books.createdAt));
+
+    return rows.map((row) => mapBookRow(row));
   }
 
   async getById(id: number): Promise<Book | undefined> {

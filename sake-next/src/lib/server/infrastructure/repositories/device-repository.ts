@@ -20,6 +20,41 @@ function mapRow(row: typeof devices.$inferSelect): Device {
 export class DeviceRepository implements DeviceRepositoryPort {
   private readonly repoLogger = createChildLogger({ repository: "DeviceRepository" });
 
+  async upsert(input: Pick<Device, "userId" | "deviceId" | "pluginVersion">): Promise<Device> {
+    const now = new Date().toISOString();
+    const [row] = await drizzleDb
+      .insert(devices)
+      .values({
+        userId: input.userId,
+        deviceId: input.deviceId,
+        pluginVersion: input.pluginVersion,
+        createdAt: now,
+        updatedAt: now,
+        lastSeenAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [devices.userId, devices.deviceId],
+        set: { pluginVersion: input.pluginVersion, updatedAt: now, lastSeenAt: now },
+      })
+      .returning();
+
+    if (!row) {
+      throw new Error("Failed to upsert device");
+    }
+
+    this.repoLogger.info(
+      { event: "device.upserted", userId: input.userId, deviceId: input.deviceId, pluginVersion: input.pluginVersion },
+      "Device version upserted",
+    );
+
+    return mapRow(row);
+  }
+
+  async getByDeviceId(deviceId: string): Promise<Device | undefined> {
+    const [row] = await drizzleDb.select().from(devices).where(eq(devices.deviceId, deviceId)).limit(1);
+    return row ? mapRow(row) : undefined;
+  }
+
   async listByUserId(userId: number): Promise<Device[]> {
     const rows = await drizzleDb
       .select()

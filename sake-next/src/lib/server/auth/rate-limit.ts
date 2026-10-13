@@ -9,7 +9,7 @@ interface RateLimitBucket {
   resetAt: number;
 }
 
-export type AuthRateLimitPolicyName = "bootstrapIp" | "loginIp" | "loginUsername";
+export type AuthRateLimitPolicyName = "bootstrapIp" | "loginIp" | "loginUsername" | "deviceKeyIp" | "deviceKeyUserDevice";
 
 export interface AuthRateLimitAttempt {
   policyName: AuthRateLimitPolicyName;
@@ -20,6 +20,8 @@ const AUTH_RATE_LIMIT_POLICIES: Record<AuthRateLimitPolicyName, RateLimitPolicy>
   bootstrapIp: { name: "auth.bootstrap.ip", limit: 5, windowMs: 15 * 60 * 1000 },
   loginIp: { name: "auth.login.ip", limit: 10, windowMs: 10 * 60 * 1000 },
   loginUsername: { name: "auth.login.username", limit: 10, windowMs: 10 * 60 * 1000 },
+  deviceKeyIp: { name: "auth.device_key.ip", limit: 10, windowMs: 10 * 60 * 1000 },
+  deviceKeyUserDevice: { name: "auth.device_key.user_device", limit: 8, windowMs: 10 * 60 * 1000 },
 };
 
 const buckets = new Map<string, RateLimitBucket>();

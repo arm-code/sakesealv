@@ -9,7 +9,7 @@ import type {
 } from "@/lib/server/domain/auth";
 import type { Book, CreateBookInput, UpdateBookMetadataInput } from "@/lib/server/domain/book";
 import type { BookProgressHistory } from "@/lib/server/domain/book-progress-history";
-import type { Device } from "@/lib/server/domain/device";
+import type { Device, DeviceDownload, DeviceProgressDownload } from "@/lib/server/domain/device";
 import type { PluginRelease, UpsertPluginReleaseInput } from "@/lib/server/domain/plugin-release";
 import type { MetadataProviderId } from "@/lib/types/metadata-provider";
 import type { SearchBooksRequest, SearchProviderId, SearchResultBook } from "@/lib/types/search";
@@ -75,6 +75,8 @@ export interface BookRepositoryPort {
   getByZLibId(zLibId: string): Promise<Book | undefined>;
   getByZLibIdIncludingTrashed(zLibId: string): Promise<Book | undefined>;
   getByStorageKeyIncludingTrashed(storageKey: string): Promise<Book | undefined>;
+  getNotDownloadedByDevice(deviceId: string): Promise<Book[]>;
+  getBooksWithNewProgressForDevice(deviceId: string): Promise<Book[]>;
   hasOtherBookWithStorageKey(storageKey: string, excludeBookId: number): Promise<boolean>;
   listStorageKeysWithExternalReferences(storageKeys: string[], excludeBookIds: number[]): Promise<string[]>;
   create(book: CreateBookInput): Promise<Book>;
@@ -109,21 +111,24 @@ export interface BookProgressHistoryRepositoryPort {
   getByBookId(bookId: number): Promise<BookProgressHistory[]>;
 }
 
-// Recortado a lo que usan ListDevicesUseCase/DeleteDeviceUseCase. `upsert` y
-// `getByDeviceId` son del flujo de pairing del plugin KOReader
-// (CreateDeviceApiKeyUseCase) — fuera de alcance en 3b, no se portó.
+// `upsert`/`getByDeviceId` son del flujo de pairing del plugin KOReader
+// (CreateDeviceApiKeyUseCase) y del sync de versión por header — se portaron
+// en 3r.
 export interface DeviceRepositoryPort {
+  upsert(input: Pick<Device, "userId" | "deviceId" | "pluginVersion">): Promise<Device>;
+  getByDeviceId(deviceId: string): Promise<Device | undefined>;
   listByUserId(userId: number): Promise<Device[]>;
   getByUserIdAndDeviceId(userId: number, deviceId: string): Promise<Device | undefined>;
   deleteByUserIdAndDeviceId(userId: number, deviceId: string): Promise<boolean>;
 }
 
-// Recortado a lo que usan DeleteDeviceUseCase (deleteByDeviceId) y
-// GetLibraryBookDetailUseCase (getByBookId, Fase 3f). El resto del original
-// (getAll/getByDevice/create/ensureByDeviceAndBook/deleteByBookIdAndDeviceId/
-// delete + wrappers static) pertenece al flujo de descarga a dispositivos,
-// fuera de alcance todavía.
+// Recortado a lo que usan DeleteDeviceUseCase (deleteByDeviceId),
+// GetLibraryBookDetailUseCase (getByBookId, Fase 3f) y ConfirmDownloadUseCase
+// (create, Fase 3r). El resto del original (getAll/getByDevice/
+// ensureByDeviceAndBook/deleteByBookIdAndDeviceId/delete + wrappers static)
+// pertenece a /api/library/[id]/downloads, fuera de alcance todavía.
 export interface DeviceDownloadRepositoryPort {
+  create(download: Omit<DeviceDownload, "id">): Promise<DeviceDownload>;
   getByBookId(bookId: number): Promise<{ deviceId: string }[]>;
   deleteByDeviceId(deviceId: string): Promise<void>;
 }
@@ -137,7 +142,7 @@ export interface DeviceDownloadRepositoryPort {
 // porta completo en vez de recortarlo.
 export interface DeviceProgressDownloadRepositoryPort {
   deleteByDeviceId(deviceId: string): Promise<void>;
-  upsertByDeviceAndBook(input: { deviceId: string; bookId: number; progressUpdatedAt: string }): Promise<void>;
+  upsertByDeviceAndBook(input: Omit<DeviceProgressDownload, "id">): Promise<DeviceProgressDownload>;
 }
 
 export interface PluginReleaseRepositoryPort {
