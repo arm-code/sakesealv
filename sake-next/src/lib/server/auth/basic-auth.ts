@@ -1,5 +1,9 @@
-import { userRepository } from "@/lib/server/application/composition";
 import { verifyPassword } from "@/lib/server/application/local-auth-service";
+import { UserRepository } from "@/lib/server/infrastructure/repositories/user-repository";
+
+// Instancia propia (el repo no tiene estado): evita importar composition.ts, que
+// proxy.ts (DAV) no debe arrastrar al cargar su grafo de módulos.
+const userRepository = new UserRepository();
 
 function unauthorizedResponse(realm: string): Response {
   return new Response("Unauthorized", {

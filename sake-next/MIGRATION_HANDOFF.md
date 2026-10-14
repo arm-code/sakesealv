@@ -2368,6 +2368,40 @@ pieza F del scoping de adquisición (device-download tracking), salvo `export`.
 
 ---
 
+## Fase 3u — Detalle de lo hecho (COMPLETA)
+
+**DAV (`PROPFIND /api/dav[/...path]`)** — listado WebDAV de solo lectura del bucket, con
+Basic auth (realm "WebDAV"). El original solo implementaba PROPFIND (el resto → 405).
+
+### Hallazgo: los Route Handlers de Next 16 no aceptan métodos no estándar
+`resolveHandler` (app-route/module.js) responde **400** a cualquier método fuera de
+GET/HEAD/OPTIONS/POST/PUT/DELETE/PATCH, así que `export function PROPFIND` no sirve. La
+solución es **`src/proxy.ts`** (primer uso de proxy en el proyecto), con matcher
+`/api/dav` y `/api/dav/:path*`: ahí vive todo DAV. El resto de la auth sigue por ruta.
+
+### Piezas
+- `src/proxy.ts` → `handleDavRequest` (`lib/server/dav/propfind.ts`): método ≠ PROPFIND →
+  405 con `Allow: PROPFIND` (antes de la auth, como el original); luego Basic auth; 207 XML.
+- `use-cases/list-dav-directory.ts` — portado; escapa `& < >` en `displayname`.
+- **proxy.ts NO importa `composition.ts`** (arrastraría todo el grafo y duplicaría
+  singletons): `propfind.ts` construye su propio `S3Storage` lazy y `basic-auth.ts` usa una
+  `new UserRepository()` propia. `ListDavDirectoryUseCase` por eso no está en composition.
+- Si se añade otra ruta con método no estándar (p. ej. más verbos WebDAV), va en este
+  mismo proxy; si se amplía el matcher, ojo: proxy corre en cada request que coincida.
+
+### Cosas a saber
+- Las `href` del XML salen como `/library%2Ffoo.epub` (la key completa con `/` codificado),
+  igual que el original — no es un árbol WebDAV real, solo un listado plano por prefijo.
+- Las keys de storage pasan por `sanitizeLibraryStorageKey` (`&` → `_and_`), así que el
+  escape XML es defensivo.
+- El bucket real del usuario tiene objetos de sesiones anteriores (`covers/test-book-3f-
+  cover.jpg`, `library/test-book-3f.*`) que NO son de esta fase; no se tocaron.
+- **Verificación:** `tsc` limpio + `next dev` real: PROPFIND 401 sin auth/con password mala,
+  207 en raíz y en `/api/dav/library`, GET y PUT → 405 con `Allow`, y rutas normales
+  (`/api/auth/status`, `/api/library/list`) intactas. Datos propios limpiados.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2565,3 +2599,6 @@ Pega esto al iniciar:
 > **ACTUALIZACIÓN 3t:** OPDS hecho (ver "Fase 3t"); `requireBasicAuth` ya existe para DAV.
 > Siguen: DAV (~140 líneas), los 2 streams SSE de logs, annotations (~480), stats (~760) y la
 > decisión de jobs de fondo.
+>
+> **ACTUALIZACIÓN 3u:** DAV hecho (vía `src/proxy.ts`, ver "Fase 3u"). Siguen: los 2 streams
+> SSE de logs, annotations (~480), stats (~760) y la decisión de jobs de fondo.
