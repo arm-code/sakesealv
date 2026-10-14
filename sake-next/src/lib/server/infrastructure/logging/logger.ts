@@ -1,4 +1,5 @@
 import pino, { type Logger } from "pino";
+import { webappLogFeed } from "./webapp-log-feed";
 
 function resolveLogLevel(): string {
   return process.env.LOG_LEVEL?.trim() || "info";
@@ -54,9 +55,8 @@ export function toLogError(error: unknown): SerializedLogError {
   return { name: "UnknownError", message: "Unknown error" };
 }
 
-// Nota: el original también transmite a `webappLogFeed` (199 líneas) para alimentar
-// el visor de logs en vivo de Settings → Logs. Esa pantalla todavía no existe en
-// sake-next (es Fase 4), así que por ahora el logger solo escribe a stdout.
+// Además de stdout, transmite a `webappLogFeed` para el visor de logs en vivo
+// (/api/logs/webapp/stream).
 export const logger: Logger = pino(
   {
     name: "sake",
@@ -66,10 +66,15 @@ export const logger: Logger = pino(
       env: process.env.NODE_ENV ?? "development",
     },
   },
-  pino.transport({
-    target: "pino-pretty",
-    options: { colorize: true, translateTime: "SYS:standard", ignore: "pid,hostname" },
-  }),
+  pino.multistream([
+    {
+      stream: pino.transport({
+        target: "pino-pretty",
+        options: { colorize: true, translateTime: "SYS:standard", ignore: "pid,hostname" },
+      }),
+    },
+    { stream: webappLogFeed },
+  ]),
 );
 
 export function createChildLogger(bindings: Record<string, unknown>): Logger {

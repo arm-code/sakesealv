@@ -1,4 +1,5 @@
 import type { DeviceLogEntry } from "@/lib/types/device-log";
+import type { WebappLogEntry } from "@/lib/types/webapp-log";
 import type { LibraryShelf, RuleGroup } from "@/lib/types/library";
 import type {
   CreateUserAccountInput,
@@ -304,8 +305,8 @@ export interface MetadataProviderPort {
   lookup(query: MetadataQuery): Promise<ApiResult<MetadataCandidate[]>>;
 }
 
-// Feed en memoria de logs de dispositivos (Fase 3s). `observe` lo consumirá
-// el endpoint SSE de logs cuando se porte.
+// Feeds en memoria de logs: de dispositivos (3s) y de la webapp (3v). Los
+// consumen los endpoints SSE.
 export interface DeviceLogObservation {
   snapshot: DeviceLogEntry[];
   subscribe(listener: (entry: DeviceLogEntry) => void): () => void;
@@ -314,4 +315,13 @@ export interface DeviceLogObservation {
 export interface DeviceLogFeedPort {
   append(entry: Omit<DeviceLogEntry, "id">): DeviceLogEntry;
   observe(deviceId: string): DeviceLogObservation;
+}
+
+export interface WebappLogObservation {
+  snapshot: WebappLogEntry[];
+  subscribe(listener: (entry: WebappLogEntry) => void): () => void;
+}
+
+export interface WebappLogFeedPort {
+  observe(): WebappLogObservation;
 }

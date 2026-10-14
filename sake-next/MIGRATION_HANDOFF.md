@@ -2402,6 +2402,40 @@ solución es **`src/proxy.ts`** (primer uso de proxy en el proyecto), con matche
 
 ---
 
+## Fase 3v — Detalle de lo hecho (COMPLETA)
+
+**Streams SSE de logs.** `GET /api/devices/[deviceId]/logs/stream` (logs que el plugin sube
+a `POST /api/devices/logs`, 3s) y `GET /api/logs/webapp/stream` (logs del propio server).
+Ambos **solo sesión** (`requireSession`; la API key da 403).
+
+### Piezas
+- `lib/server/http/sse.ts` — `createLogStreamResponse(request, observation)`: `retry: 2000`,
+  evento `snapshot` con el backlog, `entry` por cada log nuevo, `heartbeat` cada 15 s;
+  limpia intervalo/suscripción al abortar la request o cancelar el stream.
+- `InMemoryWebappLogFeed` (`infrastructure/logging/webapp-log-feed.ts`): `Writable` que
+  recibe las líneas JSON de pino y las parsea (backlog 500). **`logger.ts` ahora usa
+  `pino.multistream([pino-pretty, webappLogFeed])`** — el comentario de 3a que decía "solo
+  stdout" ya no aplica.
+- Use-cases `observe-device-logs` / `observe-webapp-logs`; tipos en `lib/types/webapp-log.ts`;
+  puertos `WebappLogFeedPort`/`WebappLogObservation` en `ports.ts`.
+- Ambos feeds (`deviceLogFeed`, `webappLogFeed`) viven en `globalThis` (`Symbol.for`), porque
+  Next puede cargar un módulo varias veces (bundles por ruta, HMR); sin eso el POST de logs y
+  el stream podrían ver feeds distintos. **Solo se verificó en `next dev`** (el build no corre
+  aquí por Google Fonts), así que si en producción algún feed apareciera vacío, empezar por ahí.
+- Rutas con `export const dynamic = "force-dynamic"`.
+
+### Cosas a saber
+- El snapshot de webapp incluye logs de arranque (config de infraestructura, etc.), que pueden
+  contener `target` de DB/S3 en `context` (sin credenciales; igual que el original).
+- Los feeds son en memoria: se pierden al reiniciar y no se comparten entre procesos.
+- **Verificación:** `tsc` limpio + `next dev` real: 401 sin auth, 403 con API key, 404 device
+  inexistente; stream de device recibe `snapshot` + `entry` en vivo tras un `POST
+  /api/devices/logs`; stream de webapp recibe `snapshot` con el backlog, `entry` en vivo
+  (warns de requests rechazadas) y `heartbeat`; abrir/cerrar streams repetidamente deja el
+  server sano.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2602,3 +2636,7 @@ Pega esto al iniciar:
 >
 > **ACTUALIZACIÓN 3u:** DAV hecho (vía `src/proxy.ts`, ver "Fase 3u"). Siguen: los 2 streams
 > SSE de logs, annotations (~480), stats (~760) y la decisión de jobs de fondo.
+>
+> **ACTUALIZACIÓN 3v:** los 2 streams SSE de logs están hechos (ver "Fase 3v"; el logger
+> ahora alimenta `webappLogFeed`). Siguen: annotations (~480), stats (~760) y la decisión de
+> jobs de fondo.

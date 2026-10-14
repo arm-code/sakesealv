@@ -86,3 +86,9 @@ export class InMemoryDeviceLogFeed implements DeviceLogFeedPort {
     return this.touchSequence;
   }
 }
+
+// Una sola instancia por proceso aunque Next cargue el módulo varias veces
+// (bundles por ruta, HMR en dev).
+const GLOBAL_KEY = Symbol.for("sake.deviceLogFeed");
+const globalStore = globalThis as unknown as Record<symbol, InMemoryDeviceLogFeed | undefined>;
+export const deviceLogFeed: InMemoryDeviceLogFeed = (globalStore[GLOBAL_KEY] ??= new InMemoryDeviceLogFeed());

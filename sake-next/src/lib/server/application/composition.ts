@@ -74,7 +74,10 @@ import { ExportDeviceLibraryBookUseCase } from "@/lib/server/application/use-cas
 import { AppendDeviceLogUseCase } from "@/lib/server/application/use-cases/append-device-log";
 import { ResetDownloadStatusUseCase } from "@/lib/server/application/use-cases/reset-download-status";
 import { RemoveDeviceDownloadUseCase } from "@/lib/server/application/use-cases/remove-device-download";
-import { InMemoryDeviceLogFeed } from "@/lib/server/infrastructure/logging/device-log-feed";
+import { deviceLogFeed } from "@/lib/server/infrastructure/logging/device-log-feed";
+import { webappLogFeed } from "@/lib/server/infrastructure/logging/webapp-log-feed";
+import { ObserveDeviceLogsUseCase } from "@/lib/server/application/use-cases/observe-device-logs";
+import { ObserveWebappLogsUseCase } from "@/lib/server/application/use-cases/observe-webapp-logs";
 import { ConfirmDownloadUseCase } from "@/lib/server/application/use-cases/confirm-download";
 import { ConfirmProgressDownloadUseCase } from "@/lib/server/application/use-cases/confirm-progress-download";
 import { DeleteDeviceUseCase } from "@/lib/server/application/use-cases/delete-device";
@@ -326,8 +329,10 @@ export const putLibraryFileUseCase = new PutLibraryFileUseCase(storage, bookRepo
 export const deleteLibraryFileUseCase = new DeleteLibraryFileUseCase(storage);
 
 // Fase 3s: huecos chicos de dispositivos/biblioteca.
-export const deviceLogFeed = new InMemoryDeviceLogFeed();
+export { deviceLogFeed };
 export const appendDeviceLogUseCase = new AppendDeviceLogUseCase(deviceRepository, deviceLogFeed);
+export const observeDeviceLogsUseCase = new ObserveDeviceLogsUseCase(deviceRepository, deviceLogFeed);
+export const observeWebappLogsUseCase = new ObserveWebappLogsUseCase(webappLogFeed);
 export const resetDownloadStatusUseCase = new ResetDownloadStatusUseCase(bookRepository);
 export const removeDeviceDownloadUseCase = new RemoveDeviceDownloadUseCase(deviceDownloadRepository);
 export const exportDeviceLibraryBookUseCase = new ExportDeviceLibraryBookUseCase(
