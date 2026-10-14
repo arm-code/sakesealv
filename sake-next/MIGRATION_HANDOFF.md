@@ -2334,6 +2334,40 @@ pieza F del scoping de adquisición (device-download tracking), salvo `export`.
 
 ---
 
+## Fase 3t — Detalle de lo hecho (COMPLETA)
+
+**OPDS** (catálogo para lectores externos). 17 rutas bajo `/api/opds/*`, todas GET con
+**Basic auth** (realm "OPDS Catalog"); la cookie de sesión y la API key NO valen aquí
+(igual que el original).
+
+### Piezas
+- `lib/server/auth/basic-auth.ts` — `requireBasicAuth(request, realm)`: acepta la
+  contraseña de la cuenta o la contraseña Basic dedicada (3b). **Reutilizable por DAV.**
+- `lib/server/opds/feed-builder.ts` — `renderAcquisitionFeed`/`renderNavigationFeed`,
+  portados tal cual.
+- `lib/server/opds/handlers.ts` — helpers que sustituyen la repetición de las 17 rutas del
+  original: `handleOpdsFeed` (auth + try/catch + content-type), `booksFeed`,
+  `distinctValuesFeed`, `OpdsHttpError`. Las rutas son de 10-30 líneas cada una.
+- Rutas: root, alphabetical, random, read, unread, authors[/author], series[/series],
+  publishers[/publisher], languages[/language], shelves[/id], covers/[fileName],
+  download/[title].
+
+### Cosas a saber
+- Sin cambios de comportamiento: sin paginación (todo el catálogo en un feed), `random`
+  filtra cada libro al 50 %, series ordena por `series_index` y luego título.
+- Los params dinámicos ya llegan decodificados en Next 16 (probado con "José Árbol",
+  "Ed & Sons"); los hrefs de los feeds los vuelven a codificar con `encodeURIComponent`.
+- Diferencia menor: los 400 por param vacío se evalúan antes de la auth (nunca ocurre con
+  una URL real, el segmento dinámico no puede ser vacío).
+- Los covers no se probaron con imagen real (los EPUB de prueba no tenían portada); la ruta
+  es la misma lógica que `/api/library/covers/[fileName]` (`getLibraryCoverUseCase`).
+- **Verificación:** `tsc` limpio + `next dev` real con DB temporal y SeaweedFS: 401 sin auth y
+  con password mala, ambas contraseñas válidas (cuenta y Basic), cookie de sesión rechazada,
+  los 9 feeds + detalle por autor/serie/editorial/idioma/estante, 404/400 de estante, descarga
+  real del EPUB (content-type correcto) y 404 de archivo inexistente. Datos limpiados.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2527,3 +2561,7 @@ Pega esto al iniciar:
 > (~1,060 líneas, auth Basic propia), annotations (~480), stats (~760), DAV (~140), los
 > 2 streams SSE de logs, y la decisión de jobs de fondo (Pieza D, colas, purga, plugin
 > sync, Hardcover). Si `bun run build` falla por Google Fonts, es red, no el código.
+>
+> **ACTUALIZACIÓN 3t:** OPDS hecho (ver "Fase 3t"); `requireBasicAuth` ya existe para DAV.
+> Siguen: DAV (~140 líneas), los 2 streams SSE de logs, annotations (~480), stats (~760) y la
+> decisión de jobs de fondo.
