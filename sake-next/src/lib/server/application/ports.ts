@@ -1,3 +1,4 @@
+import type { DeviceLogEntry } from "@/lib/types/device-log";
 import type { LibraryShelf, RuleGroup } from "@/lib/types/library";
 import type {
   CreateUserAccountInput,
@@ -64,7 +65,7 @@ export interface ShelfRepositoryPort {
 // de adquisición Z-Library DownloadBookUseCase/LibraryImportCollisionService
 // (getByZLibId*, getByStorageKeyIncludingTrashed, create). El resto del
 // original (getAllForStats, getByTitle*, updateHardcoverId,
-// resetDownloadStatus, touchProgressUpdatedAt, getNotDownloadedByDevice,
+// touchProgressUpdatedAt, getNotDownloadedByDevice,
 // getBooksWithNewProgressForDevice, count) pertenece a mini-fases futuras
 // (dispositivos, estadísticas).
 export interface BookRepositoryPort {
@@ -75,6 +76,7 @@ export interface BookRepositoryPort {
   getByZLibId(zLibId: string): Promise<Book | undefined>;
   getByZLibIdIncludingTrashed(zLibId: string): Promise<Book | undefined>;
   getByStorageKeyIncludingTrashed(storageKey: string): Promise<Book | undefined>;
+  resetDownloadStatus(bookId: number): Promise<void>;
   getNotDownloadedByDevice(deviceId: string): Promise<Book[]>;
   getBooksWithNewProgressForDevice(deviceId: string): Promise<Book[]>;
   hasOtherBookWithStorageKey(storageKey: string, excludeBookId: number): Promise<boolean>;
@@ -125,10 +127,12 @@ export interface DeviceRepositoryPort {
 // Recortado a lo que usan DeleteDeviceUseCase (deleteByDeviceId),
 // GetLibraryBookDetailUseCase (getByBookId, Fase 3f) y ConfirmDownloadUseCase
 // (create, Fase 3r). El resto del original (getAll/getByDevice/
-// ensureByDeviceAndBook/deleteByBookIdAndDeviceId/delete + wrappers static)
-// pertenece a /api/library/[id]/downloads, fuera de alcance todavía.
+// delete + wrappers static) no se portó. Desde 3s incluye ensureByDeviceAndBook
+// (export) y deleteByBookIdAndDeviceId (/api/library/[id]/downloads).
 export interface DeviceDownloadRepositoryPort {
   create(download: Omit<DeviceDownload, "id">): Promise<DeviceDownload>;
+  ensureByDeviceAndBook(download: Omit<DeviceDownload, "id">): Promise<DeviceDownload>;
+  deleteByBookIdAndDeviceId(bookId: number, deviceId: string): Promise<void>;
   getByBookId(bookId: number): Promise<{ deviceId: string }[]>;
   deleteByDeviceId(deviceId: string): Promise<void>;
 }
@@ -298,4 +302,16 @@ export interface MetadataProviderPort {
   readonly id: MetadataProviderId;
   readonly capabilities: MetadataProviderCapabilities;
   lookup(query: MetadataQuery): Promise<ApiResult<MetadataCandidate[]>>;
+}
+
+// Feed en memoria de logs de dispositivos (Fase 3s). `observe` lo consumirá
+// el endpoint SSE de logs cuando se porte.
+export interface DeviceLogObservation {
+  snapshot: DeviceLogEntry[];
+  subscribe(listener: (entry: DeviceLogEntry) => void): () => void;
+}
+
+export interface DeviceLogFeedPort {
+  append(entry: Omit<DeviceLogEntry, "id">): DeviceLogEntry;
+  observe(deviceId: string): DeviceLogObservation;
 }

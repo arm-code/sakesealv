@@ -138,6 +138,11 @@ export class BookRepository implements BookRepositoryPort {
     return mapBookRow(updated);
   }
 
+  async resetDownloadStatus(bookId: number): Promise<void> {
+    await drizzleDb.delete(deviceDownloads).where(eq(deviceDownloads.bookId, bookId));
+    this.repoLogger.info({ event: "book.downloadStatus.reset", bookId }, "Book download status reset");
+  }
+
   async updateProgress(bookId: number, progressKey: string, progressPercent: number | null, progressUpdatedAt?: string | null): Promise<void> {
     const progressUpdatedAtValue =
       typeof progressUpdatedAt === "string" && progressUpdatedAt.trim().length > 0 ? progressUpdatedAt.trim() : sql`CURRENT_TIMESTAMP`;

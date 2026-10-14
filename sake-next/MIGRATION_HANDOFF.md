@@ -2289,6 +2289,51 @@ pieza F del scoping de adquisición (device-download tracking), salvo `export`.
 
 ---
 
+## Fase 3s — Detalle de lo hecho (COMPLETA)
+
+**Grupo A del scoping posterior a 3r: huecos chicos de dispositivos/biblioteca.**
+
+### Rutas nuevas
+- `POST /api/library/export` — `requireActor()` (sesión o API key), multipart
+  (`fileName`, `file`, `sidecarFile?`, `deviceId`). Importa el libro vía
+  `PutLibraryFileUseCase`, registra la descarga del device (`ensureByDeviceAndBook`,
+  idempotente) e importa el sidecar con la regla "el entrante más viejo no pisa"
+  (`skipped_older`). Respuesta `{ success, bookOutcome: created|duplicate, sidecarOutcome:
+  imported|missing|skipped_older }`; 409 si hay un libro en papelera con ese nombre.
+- `POST /api/devices/version` — `requireActor()`; reusa `ReportDeviceVersionUseCase`.
+- `POST /api/devices/logs` — `requireActor()` pero **solo API key** (403 a sesión, igual
+  que el original). Alimenta `InMemoryDeviceLogFeed` (backlog 500 por device, máx. 100
+  devices). 204 sin cuerpo.
+- `DELETE /api/library/[id]/downloads` (reset de descargas de un libro) y
+  `DELETE /api/library/[id]/downloads/[deviceId]` — `requireSession()`.
+
+### Piezas
+- Use-cases: `export-device-library-book`, `append-device-log`, `reset-download-status`,
+  `remove-device-download`. Repos: `BookRepository.resetDownloadStatus`,
+  `DeviceDownloadRepository.ensureByDeviceAndBook/deleteByBookIdAndDeviceId`.
+- `lib/types/device-log.ts` + `infrastructure/logging/device-log-feed.ts` + puerto
+  `DeviceLogFeedPort` (incluye `observe`, listo para el SSE de logs, aún sin portar).
+
+### Cosas a saber
+- `ExportDeviceLibraryBookUseCase` va **sin** las dependencias opcionales del original
+  (`HardcoverProgressSyncPort`, `AnnotationIndexService`): no existen aún. Cuando se porten
+  hay que añadirlas al constructor y a `composition.ts`.
+- `/api/library/[id]/downloads*` no están en la allowlist de API key (igual que el
+  original): con API key dan 403.
+- El feed de logs vive en memoria del proceso (se pierde al reiniciar; igual que el original).
+- Pendiente de este grupo: `/api/devices/[deviceId]/logs/stream` y `/api/logs/webapp/stream`
+  (SSE), que consumirán `deviceLogFeed.observe`.
+- **Verificación:** `tsc --noEmit` limpio. `bun run build` falla en este entorno por la
+  descarga de Google Fonts (sin red a fonts.googleapis.com), ajeno al cambio — se verificó
+  contra `next dev` real con DB temporal propia (`LIBSQL_URL=file:./.data/verify.db`, para
+  no tocar la cuenta real de `dev.db`) + SeaweedFS real: pairing, version (200/403 device
+  ajeno), logs (204/400/403 con sesión), export (created+imported / duplicate / 400 .txt /
+  skipped_older con sidecar más viejo / 401), DELETE downloads (403 con API key, 200 con
+  sesión, 400 id inválido, 401). Libro y objetos S3 borrados vía papelera al terminar;
+  DB temporal borrada; contenedor `sake-seaweedfs` devuelto a detenido (estaba parado).
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2476,3 +2521,9 @@ Pega esto al iniciar:
 > stats, y la decisión de arquitectura de jobs de fondo (Pieza D + purga de
 > papelera + plugin sync + Hardcover). Plantea el alcance de lo que sea que
 > sigue antes de escribir nada, mismo patrón que siempre.
+>
+> **ACTUALIZACIÓN 3s:** hecho el grupo A (`library/export`, `devices/version`,
+> `devices/logs`, `library/[id]/downloads[/deviceId]`; ver "Fase 3s"). Siguen: OPDS
+> (~1,060 líneas, auth Basic propia), annotations (~480), stats (~760), DAV (~140), los
+> 2 streams SSE de logs, y la decisión de jobs de fondo (Pieza D, colas, purga, plugin
+> sync, Hardcover). Si `bun run build` falla por Google Fonts, es red, no el código.

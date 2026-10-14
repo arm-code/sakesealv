@@ -70,6 +70,11 @@ import { GetProgressUseCase } from "@/lib/server/application/use-cases/get-progr
 import { PutProgressUseCase } from "@/lib/server/application/use-cases/put-progress";
 import { GetNewBooksForDeviceUseCase } from "@/lib/server/application/use-cases/get-new-books-for-device";
 import { GetNewProgressForDeviceUseCase } from "@/lib/server/application/use-cases/get-new-progress-for-device";
+import { ExportDeviceLibraryBookUseCase } from "@/lib/server/application/use-cases/export-device-library-book";
+import { AppendDeviceLogUseCase } from "@/lib/server/application/use-cases/append-device-log";
+import { ResetDownloadStatusUseCase } from "@/lib/server/application/use-cases/reset-download-status";
+import { RemoveDeviceDownloadUseCase } from "@/lib/server/application/use-cases/remove-device-download";
+import { InMemoryDeviceLogFeed } from "@/lib/server/infrastructure/logging/device-log-feed";
 import { ConfirmDownloadUseCase } from "@/lib/server/application/use-cases/confirm-download";
 import { ConfirmProgressDownloadUseCase } from "@/lib/server/application/use-cases/confirm-progress-download";
 import { DeleteDeviceUseCase } from "@/lib/server/application/use-cases/delete-device";
@@ -319,3 +324,17 @@ export const putLibraryFileUseCase = new PutLibraryFileUseCase(storage, bookRepo
   storeFromSearchImport: (input) => storeManagedBookCoverFromSearchImport(storage, input, () => zlibraryMirrorSettingsRepository.get()),
 });
 export const deleteLibraryFileUseCase = new DeleteLibraryFileUseCase(storage);
+
+// Fase 3s: huecos chicos de dispositivos/biblioteca.
+export const deviceLogFeed = new InMemoryDeviceLogFeed();
+export const appendDeviceLogUseCase = new AppendDeviceLogUseCase(deviceRepository, deviceLogFeed);
+export const resetDownloadStatusUseCase = new ResetDownloadStatusUseCase(bookRepository);
+export const removeDeviceDownloadUseCase = new RemoveDeviceDownloadUseCase(deviceDownloadRepository);
+export const exportDeviceLibraryBookUseCase = new ExportDeviceLibraryBookUseCase(
+  bookRepository,
+  deviceDownloadRepository,
+  deviceProgressDownloadRepository,
+  storage,
+  putLibraryFileUseCase,
+  sidecarWriteCoordinator,
+);
