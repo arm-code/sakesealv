@@ -1,3 +1,4 @@
+import type { HardcoverProgressSyncPort } from "@/lib/server/application/ports";
 import type { AnnotationIndexService } from "./annotation-index-service";
 import type { BookProgressHistoryRepositoryPort, BookRepositoryPort, DeviceProgressDownloadRepositoryPort, StoragePort } from "@/lib/server/application/ports";
 import type { Book } from "@/lib/server/domain/book";
@@ -28,7 +29,7 @@ function isMissingProgressHistoryTableError(cause: unknown): boolean {
 
 // Puerto reducido respecto al original: sin HardcoverProgressSyncPort
 // (Hardcover sigue bloqueado, ver Fase 3d/3f). El AnnotationIndexService
-// es opcional, igual que en el original (Fase 3x).
+// es opcional, igual que en el original (Fase 3x); Hardcover también (Fase 3aa).
 export class ProgressPersistenceService {
   private readonly serviceLogger = createChildLogger({ service: "ProgressPersistenceService" });
 
@@ -38,6 +39,7 @@ export class ProgressPersistenceService {
     private readonly storage: StoragePort,
     private readonly deviceProgressDownloadRepository: DeviceProgressDownloadRepositoryPort,
     private readonly annotationIndexService?: AnnotationIndexService,
+    private readonly hardcoverProgressSync?: HardcoverProgressSyncPort,
   ) {}
 
   async persist(input: PersistProgressInput): Promise<ApiResult<PersistProgressResult>> {
@@ -108,6 +110,15 @@ export class ProgressPersistenceService {
       this.serviceLogger.info(
         { event: "progress.device.confirmed", bookId: input.book.id, deviceId: input.deviceId.trim(), progressUpdatedAt: updatedBook.progress_updated_at },
         "Device progress download marker updated",
+      );
+    }
+
+    try {
+      await this.hardcoverProgressSync?.enqueueBook(input.book.id);
+    } catch (cause: unknown) {
+      this.serviceLogger.error(
+        { event: "progress.hardcover_enqueue.failed", bookId: input.book.id, cause },
+        "Failed to enqueue Hardcover progress sync",
       );
     }
 

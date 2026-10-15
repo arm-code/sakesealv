@@ -1,6 +1,8 @@
 import {
   annotationIndexService,
   downloadQueue,
+  hardcoverApiToken,
+  hardcoverProgressSyncService,
   purgeExpiredTrashUseCase,
   syncKoreaderPluginReleaseUseCase,
 } from "@/lib/server/application/composition";
@@ -77,6 +79,16 @@ export function startBackgroundJobs(): void {
   void downloadQueue.getStatus().catch((cause: unknown) => {
     createChildLogger({ event: "queue.startup" }).error({ error: toLogError(cause) }, "Download queue startup recovery failed");
   });
+
+  // Hardcover: reconcilia (y reanuda la cola) al arrancar si hay token; es no-op si está deshabilitado.
+  if (hardcoverApiToken) {
+    void hardcoverProgressSyncService.reconcile(true).catch((cause: unknown) => {
+      createChildLogger({ event: "hardcover.progress_sync.startup" }).error(
+        { error: toLogError(cause) },
+        "Hardcover progress startup reconciliation failed",
+      );
+    });
+  }
 
   if (!envFlag("SAKE_SKIP_ANNOTATION_INDEX_SYNC")) {
     annotationIndexService.startReconciliation();

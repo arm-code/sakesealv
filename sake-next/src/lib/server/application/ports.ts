@@ -95,6 +95,7 @@ export interface BookRepositoryPort {
   updateMetadata(id: number, metadata: UpdateBookMetadataInput): Promise<Book>;
   updateProgress(bookId: number, progressKey: string, progressPercent: number | null, progressUpdatedAt?: string | null): Promise<void>;
   touchProgressUpdatedAt(bookId: number, progressUpdatedAt: string): Promise<void>;
+  updateHardcoverId(bookId: number, hardcoverId: string): Promise<void>;
   updateRating(bookId: number, rating: number | null): Promise<void>;
   updateState(
     bookId: number,
@@ -429,4 +430,40 @@ export interface DownloadQueuePort {
   enqueue(task: DownloadQueueTaskInput): Promise<string>;
   getStatus(): Promise<{ pending: number; processing: number }>;
   getTasks(): Promise<QueueJobSnapshot[]>;
+}
+
+export interface HardcoverProgressSyncPort {
+  isEnabled(): Promise<boolean>;
+  enqueueBook(bookId: number, isInitialSync?: boolean): Promise<void>;
+  reconcile(isInitialSync?: boolean): Promise<number>;
+  processPending(): Promise<void>;
+}
+
+export type HardcoverProgressQueueJobStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "skipped";
+
+export interface HardcoverProgressQueueJob {
+  id: number;
+  bookId: number;
+  title: string;
+  author: string | null;
+  status: HardcoverProgressQueueJobStatus;
+  sourceProgressPercent: number;
+  attempts: number;
+  nextAttemptAt: string | null;
+  error: string | null;
+  outcome: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export interface HardcoverProgressQueuePort {
+  counts(): Promise<Record<HardcoverProgressQueueJobStatus, number>>;
+  activeCounts(): Promise<{ pending: number; processing: number }>;
+  listRecent(limit: number): Promise<HardcoverProgressQueueJob[]>;
 }

@@ -4,6 +4,7 @@ import type {
   DeviceProgressDownloadRepositoryPort,
   StoragePort,
 } from "@/lib/server/application/ports";
+import type { HardcoverProgressSyncPort } from "@/lib/server/application/ports";
 import type { PutLibraryFileUseCase } from "@/lib/server/application/use-cases/put-library-file";
 import type { AnnotationIndexService } from "@/lib/server/application/services/annotation-index-service";
 import type { SidecarWriteCoordinator } from "@/lib/server/application/services/sidecar-write-coordinator";
@@ -77,6 +78,7 @@ export class ExportDeviceLibraryBookUseCase {
     private readonly libraryFileImporter: LibraryFileImporter,
     private readonly sidecarWriteCoordinator?: SidecarWriteCoordinator,
     private readonly annotationIndexService?: AnnotationIndexService,
+    private readonly hardcoverProgressSync?: HardcoverProgressSyncPort,
   ) {}
 
   async execute(input: ExportDeviceLibraryBookInput): Promise<ApiResult<ExportDeviceLibraryBookResult>> {
@@ -179,6 +181,12 @@ export class ExportDeviceLibraryBookUseCase {
       bookId: book.id,
       progressUpdatedAt,
     });
+
+    try {
+      await this.hardcoverProgressSync?.enqueueBook(book.id);
+    } catch {
+      // El progreso local importado sigue siendo la autoridad aunque la cola de integración falle.
+    }
 
     return apiOk("imported");
   }

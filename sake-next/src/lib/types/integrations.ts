@@ -12,3 +12,8 @@ export interface HardcoverProgressSyncStatus {
     skipped: number;
   };
 }
+
+export interface TriggerHardcoverProgressSyncResponse {
+  success: true;
+  enqueued: number;
+}

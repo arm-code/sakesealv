@@ -14,7 +14,7 @@ import { useAppVersion } from "./use-app-version";
 import { useDevicesData } from "./use-devices-data";
 import { usePluginData } from "./use-plugin-data";
 import { useZlibraryMirrors } from "./use-zlibrary-mirrors";
-import { mockHardcoverStatus } from "./mock-data";
+import { useHardcoverProgress } from "./use-hardcover-progress";
 
 const SECTIONS = [
   { id: "app", label: "App", Icon: AppWindow },
@@ -60,6 +60,7 @@ export function SettingsModal({
   const devices = useDevicesData(open);
   const plugin = usePluginData(open);
   const zlibraryMirrors = useZlibraryMirrors(open);
+  const hardcover = useHardcoverProgress(open);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -112,8 +113,13 @@ export function SettingsModal({
             </TabsContent>
             <TabsContent value="integrations">
               <IntegrationsPane
-                status={mockHardcoverStatus}
-                error={null}
+                status={hardcover.status}
+                error={hardcover.error}
+                isLoading={hardcover.isLoading}
+                isSaving={hardcover.isSaving}
+                isSyncing={hardcover.isSyncing}
+                onToggleSync={(next) => void hardcover.setSyncEnabled(next)}
+                onSyncNow={() => void hardcover.syncNow()}
                 zlibName={zlibName}
                 showZLibraryLogin
                 isLoggingOutZLibrary={isLoggingOutZLibrary}

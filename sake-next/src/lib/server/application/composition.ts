@@ -64,6 +64,13 @@ import { QueueJobRepository } from "@/lib/server/infrastructure/repositories/que
 import { QueueDownloadUseCase } from "@/lib/server/application/use-cases/queue-download";
 import { QueueSearchBookUseCase } from "@/lib/server/application/use-cases/queue-search-book";
 import { GetQueueStatusUseCase } from "@/lib/server/application/use-cases/get-queue-status";
+import { HardcoverClient } from "@/lib/server/infrastructure/clients/hardcover-client";
+import { HardcoverProgressSettingsRepository } from "@/lib/server/infrastructure/repositories/hardcover-progress-settings-repository";
+import { HardcoverProgressSyncJobRepository } from "@/lib/server/infrastructure/repositories/hardcover-progress-sync-job-repository";
+import { HardcoverProgressSyncService } from "@/lib/server/application/services/hardcover-progress-sync-service";
+import { GetHardcoverProgressSyncStatusUseCase } from "@/lib/server/application/use-cases/get-hardcover-progress-sync-status";
+import { UpdateHardcoverProgressSyncSettingUseCase } from "@/lib/server/application/use-cases/update-hardcover-progress-sync-setting";
+import { TriggerHardcoverProgressSyncUseCase } from "@/lib/server/application/use-cases/trigger-hardcover-progress-sync";
 import { ProgressPersistenceService } from "@/lib/server/application/services/progress-persistence-service";
 import { SidecarWriteCoordinator } from "@/lib/server/application/services/sidecar-write-coordinator";
 
@@ -226,7 +233,35 @@ export const listLibraryRatingsUseCase = new ListLibraryRatingsUseCase(bookRepos
 export const getBookProgressHistoryUseCase = new GetBookProgressHistoryUseCase(bookRepository, bookProgressHistoryRepository);
 export const getReadingActivityStatsUseCase = new GetReadingActivityStatsUseCase(bookRepository, bookProgressHistoryRepository);
 export const updateBookRatingUseCase = new UpdateBookRatingUseCase(bookRepository);
-export const updateLibraryBookStateUseCase = new UpdateLibraryBookStateUseCase(bookRepository);
+// Fase 3aa: sync de progreso a Hardcover. Sin token no hay cliente y el servicio
+// queda inerte (`isEnabled()` → false), igual que en el original.
+export const hardcoverApiToken = process.env.HARDCOVER_API_TOKEN?.trim() || null;
+export const hardcoverClient = hardcoverApiToken ? new HardcoverClient(hardcoverApiToken) : null;
+export const hardcoverProgressSettingsRepository = new HardcoverProgressSettingsRepository();
+export const hardcoverProgressSyncJobRepository = new HardcoverProgressSyncJobRepository();
+export const hardcoverProgressSyncService = new HardcoverProgressSyncService(
+  bookRepository,
+  hardcoverProgressSettingsRepository,
+  hardcoverProgressSyncJobRepository,
+  hardcoverClient,
+);
+export const getHardcoverProgressSyncStatusUseCase = new GetHardcoverProgressSyncStatusUseCase(
+  hardcoverProgressSettingsRepository,
+  hardcoverProgressSyncJobRepository,
+  Boolean(hardcoverApiToken),
+);
+export const updateHardcoverProgressSyncSettingUseCase = new UpdateHardcoverProgressSyncSettingUseCase(
+  hardcoverProgressSettingsRepository,
+  hardcoverProgressSyncService,
+  getHardcoverProgressSyncStatusUseCase,
+  Boolean(hardcoverApiToken),
+);
+export const triggerHardcoverProgressSyncUseCase = new TriggerHardcoverProgressSyncUseCase(
+  hardcoverProgressSyncService,
+  Boolean(hardcoverApiToken),
+);
+
+export const updateLibraryBookStateUseCase = new UpdateLibraryBookStateUseCase(bookRepository, hardcoverProgressSyncService);
 
 const progressBookResolver = new ProgressBookResolver(bookRepository);
 // Fase 3x: anotaciones. El indexador se inyecta en el sync de progreso (web/dispositivos).
@@ -253,6 +288,7 @@ const progressPersistenceService = new ProgressPersistenceService(
   storage,
   deviceProgressDownloadRepository,
   annotationIndexService,
+  hardcoverProgressSyncService,
 );
 export const putWebReaderProgressUseCase = new PutWebReaderProgressUseCase(progressBookResolver, storage, progressPersistenceService, sidecarWriteCoordinator);
 
@@ -368,12 +404,11 @@ export const putLibraryFileUseCase = new PutLibraryFileUseCase(storage, bookRepo
   storeFromSearchImport: (input) => storeManagedBookCoverFromSearchImport(storage, input, () => zlibraryMirrorSettingsRepository.get()),
 });
 
-// Fase 3z: cola de descargas en background (Pieza D). Los jobs de Hardcover no
-// están en la cola de estado porque su sync service sigue sin portar.
+// Fase 3z: cola de descargas en background (Pieza D).
 export const downloadQueue = new DownloadQueue(new QueueJobRepository(), downloadBookUseCase, downloadSearchBookUseCase, putLibraryFileUseCase);
 export const queueDownloadUseCase = new QueueDownloadUseCase(downloadQueue);
 export const queueSearchBookUseCase = new QueueSearchBookUseCase(downloadQueue);
-export const getQueueStatusUseCase = new GetQueueStatusUseCase(downloadQueue);
+export const getQueueStatusUseCase = new GetQueueStatusUseCase(downloadQueue, hardcoverProgressSyncJobRepository);
 export const deleteLibraryFileUseCase = new DeleteLibraryFileUseCase(storage);
 
 // Fase 3s: huecos chicos de dispositivos/biblioteca.
@@ -391,4 +426,5 @@ export const exportDeviceLibraryBookUseCase = new ExportDeviceLibraryBookUseCase
   putLibraryFileUseCase,
   sidecarWriteCoordinator,
   annotationIndexService,
+  hardcoverProgressSyncService,
 );

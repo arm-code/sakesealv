@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { notImplemented } from "./not-implemented";
 import type { HardcoverProgressSyncStatus } from "@/lib/types/integrations";
 
 interface IntegrationsPaneProps {
@@ -20,6 +19,8 @@ interface IntegrationsPaneProps {
   isLoading?: boolean;
   isSaving?: boolean;
   isSyncing?: boolean;
+  onToggleSync: (enabled: boolean) => void;
+  onSyncNow: () => void;
   formatDateTime: (value: string | null) => string;
   mirrors: string[];
   mirrorsError: string | null;
@@ -39,7 +40,10 @@ export function IntegrationsPane({
   onOpenZLibraryLogin,
   onLogoutZLibrary,
   isLoading = false,
+  isSaving = false,
   isSyncing = false,
+  onToggleSync,
+  onSyncNow,
   formatDateTime,
   mirrors: savedMirrors,
   mirrorsError,
@@ -193,8 +197,8 @@ export function IntegrationsPane({
           </div>
           <Switch
             checked={status?.enabled ?? false}
-            disabled={!status?.available}
-            onCheckedChange={() => notImplemented("Toggling Hardcover sync")}
+            disabled={!status?.available || isSaving}
+            onCheckedChange={onToggleSync}
             aria-label="Sync reading progress to Hardcover"
           />
         </div>
@@ -230,7 +234,7 @@ export function IntegrationsPane({
                 size="sm"
                 className="w-fit"
                 disabled={!status.enabled || isSyncing}
-                onClick={() => notImplemented("Syncing Hardcover progress")}
+                onClick={onSyncNow}
               >
                 <RefreshCw className="size-4" aria-hidden="true" />
                 {isSyncing ? "Queuing..." : "Sync now"}

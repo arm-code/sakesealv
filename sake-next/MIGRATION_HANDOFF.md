@@ -2568,6 +2568,46 @@ sesión (`requireSession`; no es ruta pública en el original). Es el único end
 
 ---
 
+## Fase 3aa — Detalle de lo hecho (COMPLETA)
+
+**Hardcover: sync de progreso, cola y ajustes.** Desbloquea lo que 3d/3f dejaron fuera.
+
+### Rutas (todas `requireSession`)
+- `GET|PUT /api/integrations/hardcover/progress` — estado (`tokenConfigured/enabled/available/
+  demoMode/lastSuccessfulSyncAt/counts`) y toggle `{ enabled }` (activarlo hace `reconcile(true)`).
+- `POST /api/integrations/hardcover/progress/sync` — reconcilia ahora, `{ success, enqueued }`.
+- `GET /api/queue` ahora también lista los jobs `hardcover-progress-sync` (mezclados con descargas).
+
+### Piezas
+- `HardcoverProgressSyncService` (495 líneas, portado ~tal cual: contexto GraphQL, resolución
+  por ISBN exacto, crear/actualizar user_book y reads, backoff, lease de 5 min), repos de jobs y de
+  settings (tablas ya existían), 3 use-cases, puertos `HardcoverProgressSyncPort`/`QueuePort`.
+- `BookRepository.updateHardcoverId` (faltaba). `composition.ts`: `hardcoverApiToken` (de
+  `process.env.HARDCOVER_API_TOKEN`), `hardcoverClient` (null sin token), servicio y use-cases.
+- **Cableado diferido:** `ProgressPersistenceService` (6.º param), `ExportDeviceLibraryBookUseCase`
+  (8.º) y `UpdateLibraryBookStateUseCase` (2.º, solo al cambiar `isRead`) encolan el libro tras
+  cada cambio de progreso; `GetQueueStatusUseCase` vuelve a la versión completa del original.
+- `background-jobs.ts`: con token, `reconcile(true)` al arrancar (no-op si está deshabilitado).
+- **UI:** el último mock del Settings modal. `use-hardcover-progress.ts` +
+  `lib/client/hardcover-progress-api.ts`; `integrations-pane.tsx` ya no usa `notImplemented`;
+  se borraron `mock-data.ts` y `not-implemented.ts`. **El Settings modal queda 100 % real.**
+
+### Cosas a saber
+- Sin `HARDCOVER_API_TOKEN` todo queda inerte y el toggle devuelve 409 (igual que el original).
+  `sake-next/.env` sigue sin token real.
+- El worker corre en el proceso web, con su propio timer de wake (no depende del cron).
+- **Verificación:** `tsc` limpio + `next dev` con DB temporal: sin token → status `available:false`,
+  PUT true y sync → 409, body inválido → 400, 401 sin sesión; con token falso → toggle encola solo
+  el libro con progreso, el worker llegó al Hardcover real, que rechazó el token, y el job quedó
+  `failed` con el mensaje de autenticación y visible en `/api/queue`; sync manual (1) y 409 con el
+  sync deshabilitado. **No se probó el camino feliz (mutaciones reales)**: no hay token válido.
+  El componente de UI no se probó en navegador (solo tsc).
+- Incidente de verificación: un arranque de `next dev` salió sin `LIBSQL_URL` y corrió ~20 s
+  contra `.data/dev.db` real (sin requests con sesión; solo los jobs de arranque: purga de papelera,
+  recuperación de cola). Recordatorio: el shell de Bash no conserva `export` entre llamadas.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2790,3 +2830,8 @@ Pega esto al iniciar:
 > existe y el troceo de adquisición queda 100 % cerrado. Del backend solo falta **Hardcover**
 > (sync service + cola de progreso + ajustes) y la **Fase 4** (UI real). Recuerda que los
 > jobs de fondo viven en `src/lib/server/jobs/background-jobs.ts`.
+>
+> **ACTUALIZACIÓN 3aa:** Hardcover hecho (ver "Fase 3aa"): servicio, cola, rutas y UI del Settings
+> modal reales. **El backend del original queda portado por completo.** Sigue solo la Fase 4 (UI real
+> de library/annotations/stats/queue sobre estas APIs). Pendiente menor: probar Hardcover con un
+> token real y la recuperación de la cola de descargas tras reinicio.

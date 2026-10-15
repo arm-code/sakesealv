@@ -1,4 +1,4 @@
-import type { BookRepositoryPort } from "@/lib/server/application/ports";
+import type { BookRepositoryPort, HardcoverProgressSyncPort } from "@/lib/server/application/ports";
 import { apiError, apiOk, type ApiResult } from "@/lib/server/http/api";
 
 interface UpdateLibraryBookStateInput {
@@ -19,10 +19,11 @@ interface UpdateLibraryBookStateResult {
   archivedAt: string | null;
 }
 
-// Sin HardcoverProgressSyncPort respecto al original — Hardcover sigue
-// bloqueado (ver Fase 3d/3f). Se reintroduce cuando se porte ese subsistema.
 export class UpdateLibraryBookStateUseCase {
-  constructor(private readonly bookRepository: BookRepositoryPort) {}
+  constructor(
+    private readonly bookRepository: BookRepositoryPort,
+    private readonly hardcoverProgressSync?: HardcoverProgressSyncPort,
+  ) {}
 
   async execute(input: UpdateLibraryBookStateInput): Promise<ApiResult<UpdateLibraryBookStateResult>> {
     if (input.isRead === undefined && input.excludeFromNewBooks === undefined && input.archived === undefined) {
