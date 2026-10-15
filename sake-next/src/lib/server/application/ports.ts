@@ -1,3 +1,10 @@
+import type { ReaderAnnotation } from "@/lib/koreader/koreader-sidecar";
+import type {
+  AnnotationFacetsResponse,
+  AnnotationHubItem,
+  AnnotationIndexSummary,
+  AnnotationQuery,
+} from "@/lib/types/annotation";
 import type { DeviceLogEntry } from "@/lib/types/device-log";
 import type { WebappLogEntry } from "@/lib/types/webapp-log";
 import type { LibraryShelf, RuleGroup } from "@/lib/types/library";
@@ -86,6 +93,7 @@ export interface BookRepositoryPort {
   create(book: CreateBookInput): Promise<Book>;
   updateMetadata(id: number, metadata: UpdateBookMetadataInput): Promise<Book>;
   updateProgress(bookId: number, progressKey: string, progressPercent: number | null, progressUpdatedAt?: string | null): Promise<void>;
+  touchProgressUpdatedAt(bookId: number, progressUpdatedAt: string): Promise<void>;
   updateRating(bookId: number, rating: number | null): Promise<void>;
   updateState(
     bookId: number,
@@ -325,4 +333,44 @@ export interface WebappLogObservation {
 
 export interface WebappLogFeedPort {
   observe(): WebappLogObservation;
+}
+
+export interface AnnotationCursor {
+  primary: string;
+  id: number;
+}
+
+export interface AnnotationPage {
+  items: AnnotationHubItem[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface AnnotationIndexCandidate {
+  bookId: number;
+  storageKey: string;
+  progressStorageKey: string;
+  progressUpdatedAt: string | null;
+}
+
+export interface AnnotationRepositoryPort {
+  replaceForBook(input: {
+    bookId: number;
+    annotations: ReaderAnnotation[];
+    sourceProgressUpdatedAt: string | null;
+    parserVersion: number;
+  }): Promise<void>;
+  markFailed(input: {
+    bookId: number;
+    sourceProgressUpdatedAt: string | null;
+    parserVersion: number;
+    error: string;
+  }): Promise<void>;
+  list(query: AnnotationQuery, cursor: AnnotationCursor | null): Promise<AnnotationPage>;
+  getById(id: number): Promise<AnnotationHubItem | undefined>;
+  getSourceId(id: number): Promise<string | undefined>;
+  getFacets(): Promise<AnnotationFacetsResponse>;
+  getIndexSummary(parserVersion: number): Promise<AnnotationIndexSummary>;
+  listIndexCandidates(parserVersion: number, bookId?: number): Promise<AnnotationIndexCandidate[]>;
+  listAllForExport(query: AnnotationQuery): AsyncIterable<AnnotationHubItem>;
 }

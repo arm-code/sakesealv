@@ -1,3 +1,4 @@
+import type { AnnotationIndexService } from "./annotation-index-service";
 import type { BookProgressHistoryRepositoryPort, BookRepositoryPort, DeviceProgressDownloadRepositoryPort, StoragePort } from "@/lib/server/application/ports";
 import type { Book } from "@/lib/server/domain/book";
 import { apiOk, type ApiResult } from "@/lib/server/http/api";
@@ -26,9 +27,8 @@ function isMissingProgressHistoryTableError(cause: unknown): boolean {
 }
 
 // Puerto reducido respecto al original: sin HardcoverProgressSyncPort
-// (Hardcover sigue bloqueado, ver Fase 3d/3f) ni AnnotationIndexService
-// (annotations todavía no existe en sake-next). Cuando se porten, se
-// reintroducen como parámetros opcionales igual que en el original.
+// (Hardcover sigue bloqueado, ver Fase 3d/3f). El AnnotationIndexService
+// es opcional, igual que en el original (Fase 3x).
 export class ProgressPersistenceService {
   private readonly serviceLogger = createChildLogger({ service: "ProgressPersistenceService" });
 
@@ -37,6 +37,7 @@ export class ProgressPersistenceService {
     private readonly bookProgressHistoryRepository: BookProgressHistoryRepositoryPort,
     private readonly storage: StoragePort,
     private readonly deviceProgressDownloadRepository: DeviceProgressDownloadRepositoryPort,
+    private readonly annotationIndexService?: AnnotationIndexService,
   ) {}
 
   async persist(input: PersistProgressInput): Promise<ApiResult<PersistProgressResult>> {
@@ -46,8 +47,15 @@ export class ProgressPersistenceService {
     const previousPercent = typeof input.book.progress_percent === "number" ? input.book.progress_percent : null;
 
     await this.bookRepository.updateProgress(input.book.id, input.progressKey, normalizedPercent);
-    const needsUpdatedBook = Boolean(input.deviceId && input.deviceId.trim() !== "");
+    const needsUpdatedBook = Boolean(this.annotationIndexService || (input.deviceId && input.deviceId.trim() !== ""));
     const updatedBook = needsUpdatedBook ? await this.bookRepository.getById(input.book.id) : undefined;
+    if (this.annotationIndexService) {
+      await this.annotationIndexService.tryIndexSource({
+        bookId: input.book.id,
+        source: input.fileData.toString("utf8"),
+        progressUpdatedAt: updatedBook?.progress_updated_at ?? null,
+      });
+    }
 
     if (input.readerSessionId) {
       try {

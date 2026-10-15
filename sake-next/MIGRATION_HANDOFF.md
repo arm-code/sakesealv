@@ -2457,6 +2457,44 @@ sesión (`requireSession`; no es ruta pública en el original). Es el único end
 
 ---
 
+## Fase 3x — Detalle de lo hecho (COMPLETA)
+
+**Annotations (hub de anotaciones/highlights).** Cinco rutas, todas solo sesión
+(`requireSession`; la API key da 403):
+`GET /api/annotations` (filtros `q/type/bookId/shelfId/color/from/to/sort/cursor/limit`),
+`GET /api/annotations/facets`, `GET|PATCH|DELETE /api/annotations/[id]`,
+`GET /api/annotations/export?format=markdown|json` (stream), `POST /api/annotations/reindex`
+(202, reconciliación en background dentro del proceso).
+
+### Piezas (portadas del original, mismo comportamiento)
+- `AnnotationRepository` (461 líneas; tablas `BookAnnotations`/`BookAnnotationIndexes` ya
+  existían en el schema), `AnnotationRepositoryPort` en `ports.ts`, `lib/types/annotation.ts`,
+  `lib/server/http/annotation-query.ts`.
+- Servicios `annotation-index-service` (parsea el sidecar y reemplaza el índice por libro;
+  `tryIndexSource` nunca rechaza el sync), `annotation-mutation-service` (PATCH/DELETE
+  reescriben el sidecar `.lua` en S3 con `mergeKoreaderSidecar` bajo `sidecarWriteCoordinator`,
+  con control optimista `expectedVersion` → 409 y compensación si falla), `annotation-export-service`.
+- 6 use-cases chicos. `BookRepository.touchProgressUpdatedAt` (faltaba) y puerto actualizado.
+- **Cableado diferido de 3g/3s:** `ProgressPersistenceService` (5.º param opcional) y
+  `ExportDeviceLibraryBookUseCase` (7.º param opcional) ahora reciben `annotationIndexService`,
+  así que cada PUT de progreso (web y KOReader) y cada export de dispositivo reindexan el libro.
+
+### Cosas a saber
+- Importes convertidos con un script de estilo (tabs→2 espacios, comillas dobles); la lógica es
+  idéntica al original. `isDemoMode()` bloquea PATCH/DELETE/reindex igual que antes.
+- La reconciliación (`startReconciliation`) corre en el proceso web, sin cron: depende de que
+  alguien llame a `reindex`. Cuando se decida la arquitectura de jobs de fondo, puede
+  dispararse en arranque (el original no lo hace; solo vía la ruta).
+- **Verificación:** `tsc` limpio + `next dev -p 3100` con DB temporal y SeaweedFS real: 401 sin
+  sesión; PUT `/api/library/progress/web` con 2 anotaciones las indexa (list/facets/filtros
+  tipo+texto+color, `with-note`, cursor); 400 por color/cursor/id inválidos, 404; PATCH nota+color
+  (reescribe sidecar, `updatedAt` poblado), 409 con versión vieja, 400 color de bookmark; export
+  md/json; DELETE; reindex 202/400. DB y objeto S3 de prueba borrados; contenedor de nuevo parado.
+  No se probó el camino de KOReader físico (export con sidecar) — comparte el mismo
+  `tryIndexSource`.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2665,3 +2703,8 @@ Pega esto al iniciar:
 > **ACTUALIZACIÓN 3w:** stats hecho (ver "Fase 3w"). Siguen: annotations (~1,300 líneas en el
 > original: repo 461, servicios 336, 5 rutas; ahí se cablea `AnnotationIndexService` en
 > progress-persistence y export) y la decisión de jobs de fondo.
+>
+> **ACTUALIZACIÓN 3x:** annotations hecho (ver "Fase 3x"; el índice ya se alimenta en progreso
+> web/dispositivo/export). Con esto el backend HTTP del original está portado salvo lo que
+> depende de la decisión de jobs de fondo (Pieza D cola de descargas, purga de papelera,
+> plugin sync, Hardcover). Siguen: esa decisión, y la Fase 4 (UI real de library/annotations/stats).

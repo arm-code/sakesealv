@@ -49,6 +49,16 @@ import { BookProgressHistoryRepository } from "@/lib/server/infrastructure/repos
 import { createLazySingleton } from "@/lib/server/utils/createLazySingleton";
 import { resolveZLibraryMirrorUrls } from "@/lib/server/config/zlibrary";
 import { ProgressBookResolver } from "@/lib/server/application/services/progress-book-resolver";
+import { AnnotationRepository } from "@/lib/server/infrastructure/repositories/annotation-repository";
+import { AnnotationIndexService } from "@/lib/server/application/services/annotation-index-service";
+import { AnnotationMutationService } from "@/lib/server/application/services/annotation-mutation-service";
+import { AnnotationExportService } from "@/lib/server/application/services/annotation-export-service";
+import { ListAnnotationsUseCase } from "@/lib/server/application/use-cases/list-annotations";
+import { GetAnnotationFacetsUseCase } from "@/lib/server/application/use-cases/get-annotation-facets";
+import { GetAnnotationUseCase } from "@/lib/server/application/use-cases/get-annotation";
+import { UpdateAnnotationUseCase } from "@/lib/server/application/use-cases/update-annotation";
+import { DeleteAnnotationUseCase } from "@/lib/server/application/use-cases/delete-annotation";
+import { ReindexAnnotationsUseCase } from "@/lib/server/application/use-cases/reindex-annotations";
 import { ProgressPersistenceService } from "@/lib/server/application/services/progress-persistence-service";
 import { SidecarWriteCoordinator } from "@/lib/server/application/services/sidecar-write-coordinator";
 
@@ -214,7 +224,31 @@ export const updateBookRatingUseCase = new UpdateBookRatingUseCase(bookRepositor
 export const updateLibraryBookStateUseCase = new UpdateLibraryBookStateUseCase(bookRepository);
 
 const progressBookResolver = new ProgressBookResolver(bookRepository);
-const progressPersistenceService = new ProgressPersistenceService(bookRepository, bookProgressHistoryRepository, storage, deviceProgressDownloadRepository);
+// Fase 3x: anotaciones. El indexador se inyecta en el sync de progreso (web/dispositivos).
+export const annotationRepository = new AnnotationRepository();
+export const annotationIndexService = new AnnotationIndexService(annotationRepository, storage);
+export const annotationMutationService = new AnnotationMutationService(
+  annotationRepository,
+  bookRepository,
+  storage,
+  annotationIndexService,
+  sidecarWriteCoordinator,
+);
+export const listAnnotationsUseCase = new ListAnnotationsUseCase(annotationRepository, annotationIndexService);
+export const getAnnotationFacetsUseCase = new GetAnnotationFacetsUseCase(annotationRepository);
+export const getAnnotationUseCase = new GetAnnotationUseCase(annotationRepository);
+export const updateAnnotationUseCase = new UpdateAnnotationUseCase(annotationMutationService);
+export const deleteAnnotationUseCase = new DeleteAnnotationUseCase(annotationMutationService);
+export const reindexAnnotationsUseCase = new ReindexAnnotationsUseCase(annotationIndexService);
+export const annotationExportService = new AnnotationExportService(annotationRepository);
+
+const progressPersistenceService = new ProgressPersistenceService(
+  bookRepository,
+  bookProgressHistoryRepository,
+  storage,
+  deviceProgressDownloadRepository,
+  annotationIndexService,
+);
 export const putWebReaderProgressUseCase = new PutWebReaderProgressUseCase(progressBookResolver, storage, progressPersistenceService, sidecarWriteCoordinator);
 
 // Fase 3r: sync de dispositivos KOReader (auth dual sesión/API key).
@@ -344,4 +378,5 @@ export const exportDeviceLibraryBookUseCase = new ExportDeviceLibraryBookUseCase
   storage,
   putLibraryFileUseCase,
   sidecarWriteCoordinator,
+  annotationIndexService,
 );

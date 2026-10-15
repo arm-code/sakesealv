@@ -5,6 +5,7 @@ import type {
   StoragePort,
 } from "@/lib/server/application/ports";
 import type { PutLibraryFileUseCase } from "@/lib/server/application/use-cases/put-library-file";
+import type { AnnotationIndexService } from "@/lib/server/application/services/annotation-index-service";
 import type { SidecarWriteCoordinator } from "@/lib/server/application/services/sidecar-write-coordinator";
 import type { Book } from "@/lib/server/domain/book";
 import {
@@ -66,7 +67,7 @@ function isMissingStorageObjectError(cause: unknown): boolean {
 
 // Exporta un libro (y opcionalmente su sidecar) desde un dispositivo
 // KOReader a la biblioteca. Sin las dependencias opcionales del original
-// (Hardcover sync, índice de anotaciones): aún no existen en sake-next.
+// (Hardcover sync): aún no existe en sake-next. El índice de anotaciones es opcional (Fase 3x).
 export class ExportDeviceLibraryBookUseCase {
   constructor(
     private readonly bookRepository: BookRepositoryPort,
@@ -75,6 +76,7 @@ export class ExportDeviceLibraryBookUseCase {
     private readonly storage: StoragePort,
     private readonly libraryFileImporter: LibraryFileImporter,
     private readonly sidecarWriteCoordinator?: SidecarWriteCoordinator,
+    private readonly annotationIndexService?: AnnotationIndexService,
   ) {}
 
   async execute(input: ExportDeviceLibraryBookInput): Promise<ApiResult<ExportDeviceLibraryBookResult>> {
@@ -167,6 +169,11 @@ export class ExportDeviceLibraryBookUseCase {
 
     await this.storage.put(`library/${descriptor.progressKey}`, sidecarBuffer, "application/x-lua");
     await this.bookRepository.updateProgress(book.id, descriptor.progressKey, progressPercent, progressUpdatedAt);
+    await this.annotationIndexService?.tryIndexSource({
+      bookId: book.id,
+      source: incomingContent,
+      progressUpdatedAt,
+    });
     await this.deviceProgressDownloadRepository.upsertByDeviceAndBook({
       deviceId: input.deviceId,
       bookId: book.id,
