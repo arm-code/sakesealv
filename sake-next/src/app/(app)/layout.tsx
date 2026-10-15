@@ -1,13 +1,14 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/sidebar/sidebar";
 import { AppTopBar } from "@/components/layout/app-topbar";
 import { MobileSidebarBackdrop } from "@/components/layout/mobile-sidebar-backdrop";
 import { SettingsModal } from "@/components/sidebar/settings/settings-modal";
 import { useZlibraryAuth } from "@/components/sidebar/settings/use-zlibrary-auth";
 import { ZLibraryAuthModal } from "@/components/zlibrary-auth-modal";
+import { AccountApi } from "@/lib/client/account-api";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
@@ -38,11 +39,29 @@ function getSectionLabel(pathname: string): string {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [zlibModalOpen, setZlibModalOpen] = useState(false);
   const zlibraryAuth = useZlibraryAuth();
+
+  // Gate de sesión: sin cookie válida volvemos al login (las rutas API ya
+  // responden 401 por su cuenta; esto solo evita mostrar el shell vacío).
+  useEffect(() => {
+    let cancelled = false;
+    AccountApi.getCurrentUser()
+      .then(() => {
+        if (!cancelled) setSessionChecked(true);
+      })
+      .catch(() => {
+        if (!cancelled) router.replace("/");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true");
@@ -52,6 +71,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const next = !collapsed;
     setCollapsed(next);
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+  }
+
+  if (!sessionChecked) {
+    return <div className="min-h-dvh" aria-busy="true" />;
   }
 
   return (

@@ -2608,6 +2608,47 @@ sesión (`requireSession`; no es ruta pública en el original). Es el único end
 
 ---
 
+## Fase 4a + 4b-1 — Detalle de lo hecho (COMPLETA)
+
+**Primera UI real fuera del shell: login/bootstrap, gating de sesión y la lista de Library.**
+
+### 4a — Login + gating
+- `app/(auth)/page.tsx` → `components/auth/login-form.tsx`: si hay sesión válida redirige a
+  `/library`; si `GET /api/auth/status` dice `needsBootstrap` muestra "Create account"
+  (usuario + contraseña + confirmación → `POST /api/auth/bootstrap`), si no "Sign in"
+  (`POST /api/auth/login`). Errores del servidor (p. ej. "Invalid username or password",
+  429) se muestran en un `role="alert"`. Cliente en `lib/client/auth-api.ts`.
+- `app/(app)/layout.tsx`: gate cliente con `GET /api/auth/me`; 401 → `router.replace("/")`
+  (mientras tanto un `div` vacío, sin parpadeo del shell). No hay `proxy.ts` de auth: las
+  rutas API siguen protegiéndose por sí solas.
+
+### 4b-1 — Lista de library (`/library`)
+- `components/library/library-view.tsx` (+ `library-toolbar.tsx`, `library-book-tile.tsx`):
+  grid y lista, búsqueda (debounce 250 ms), filtro de estado (All/Unread/Reading/Read),
+  orden por 6 campos + dirección, agrupado por serie cuando se ordena por serie, conteo,
+  estados vacío/carga/error. Los archivados se excluyen (vista propia en 4d).
+- **Estado en URL:** `?shelf=&q=&status=&sort=&dir=&mode=`. `sort`/`mode` caen a
+  `localStorage` (orden por estante: `librarySort:library[:shelf:N]`, modo global) como en el
+  original. El estante lo sigue fijando el sidebar (`?shelf=`).
+- `lib/library/{types,view}.ts`: filtros/orden/agrupado portados del original
+  (`view/filtering.ts`, `view/sorting.ts`); `lib/client/library-api.ts` (`GET /api/library/list`).
+- El filtrado/orden es 100 % cliente sobre la lista completa (igual que el original).
+
+### Fuera a propósito (siguen en 4b-2)
+Abrir detalle (modal con tabs), selección múltiple/bulk, asignar estantes desde el tile,
+subir archivos (drag&drop), rating en vivo, abrir en el lector. Los tiles no son
+interactivos todavía.
+
+### Verificación (navegador real, `next dev` + DB temporal)
+Gating (sin sesión → `/`), bootstrap por UI, login con contraseña mala (alert), búsqueda
+("dune" → 2 libros, URL `?q=dune`), orden por serie con agrupado, modo lista, filtro por
+estante desde el sidebar (`?shelf=1`), `status=read` y viewport móvil 375 px. `tsc` limpio;
+`eslint` marca el patrón `setState` en `useEffect` (regla `react-hooks/set-state-in-effect`),
+el mismo que ya tenían layout y los hooks de Settings. Sin portadas reales (libros sembrados
+sin cover); las portadas gestionadas salen de `/api/library/covers/...` con la cookie.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2835,3 +2876,7 @@ Pega esto al iniciar:
 > modal reales. **El backend del original queda portado por completo.** Sigue solo la Fase 4 (UI real
 > de library/annotations/stats/queue sobre estas APIs). Pendiente menor: probar Hardcover con un
 > token real y la recuperación de la cola de descargas tras reinicio.
+>
+> **ACTUALIZACIÓN 4a/4b-1:** login/bootstrap, gating de sesión y la lista de library ya son UI real
+> (ver "Fase 4a + 4b-1"). Sigue 4b-2 (detalle modal, selección/bulk, subir archivos), luego
+> lector (4c), archived+trash (4d), search+queue (4e), stats+annotations (4f), logs (4g).
