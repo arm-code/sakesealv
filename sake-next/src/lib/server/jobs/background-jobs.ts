@@ -1,5 +1,6 @@
 import {
   annotationIndexService,
+  downloadQueue,
   purgeExpiredTrashUseCase,
   syncKoreaderPluginReleaseUseCase,
 } from "@/lib/server/application/composition";
@@ -71,6 +72,11 @@ export function startBackgroundJobs(): void {
   } else {
     void syncPluginRelease();
   }
+
+  // Inicializa la cola: recupera jobs activos tras un reinicio y retoma los reanudables.
+  void downloadQueue.getStatus().catch((cause: unknown) => {
+    createChildLogger({ event: "queue.startup" }).error({ error: toLogError(cause) }, "Download queue startup recovery failed");
+  });
 
   if (!envFlag("SAKE_SKIP_ANNOTATION_INDEX_SYNC")) {
     annotationIndexService.startReconciliation();

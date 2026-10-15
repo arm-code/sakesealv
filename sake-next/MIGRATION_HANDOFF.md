@@ -2524,6 +2524,50 @@ sesión (`requireSession`; no es ruta pública en el original). Es el único end
 
 ---
 
+## Fase 3z — Detalle de lo hecho (COMPLETA)
+
+**Pieza D: cola de descargas en background.** Cierra el troceo de adquisición Z-Library.
+
+### Rutas (todas `requireSession`)
+- `POST /api/search/queue` — encola un import de provider (`anna|openlibrary|gutenberg`),
+  validador de body portado tal cual; responde `{ success, taskId, message, queueStatus }`.
+- `POST /api/zlibrary/queue` — encola una descarga de Z-Library (credenciales de la cookie);
+  `GET` del mismo path = estado de la cola.
+- `GET /api/queue` — estado de la cola (`pending/processing` + hasta 300 jobs).
+
+### Piezas
+- `infrastructure/queue/download-queue.ts` (`DownloadQueue`, portado ~tal cual: un worker en
+  proceso, 3 intentos con backoff 500 ms·2^n solo para fallos reintentables, purga de
+  terminales >90 días), `queue/persistence.ts`, `QueueJobRepository` (tabla `QueueJobs` ya
+  existía), use-cases `queue-download`, `queue-search-book`, `get-queue-status`.
+- Puerto `DownloadQueuePort` en `ports.ts`; `QueueSearchBookRequest` en `types/search.ts`;
+  `types/queue-status.ts`; helper `http/get-queue-status-response.ts` (una ruta Next no puede
+  exportar nombres arbitrarios, por eso no vive en `route.ts`).
+- `composition.ts`: `downloadQueue`, `queueDownloadUseCase`, `queueSearchBookUseCase`,
+  `getQueueStatusUseCase`. Con esto `PutLibraryFileUseCase.sourceImport` por fin lo puebla un
+  flujo real (el import de provider).
+
+### Diferencias respecto al original
+- `GetQueueStatusUseCase` solo lista jobs de descarga: el original mezcla los de Hardcover
+  (`HardcoverProgressQueuePort`), que sigue sin portar.
+- La cola se inicializa en el arranque (`background-jobs.ts`) y `initialize()` ahora llama a
+  `processQueue()` — en el original los jobs de provider-import recuperados tras un reinicio
+  esperaban a que alguien encolara algo nuevo.
+- Las credenciales de Z-Library son **volátiles** (solo en memoria, igual que el original): un
+  job de Z-Library encolado antes de un reinicio queda `failed` ("Requeue the download").
+
+### Cosas a saber
+- El worker corre en el proceso web; con varias réplicas habría varios workers (cada uno
+  reclama con `claimNextQueued`, pero no se probó concurrencia).
+- **Verificación:** `tsc` limpio + `next dev` con DB temporal y SeaweedFS reales: 401 sin sesión,
+  400 por provider/credenciales inválidos, job real de openlibrary (`thenurseryalice55040gut`)
+  queued→processing→completed en ~5 s, libro importado con metadata y portada reales; segundo
+  encolado del mismo título → `failed` con "Book already exists" sin reintentos. No se probó la
+  recuperación tras reinicio con jobs a medias ni el backoff con un fallo 5xx real.
+  Datos de prueba (DB + objetos S3) borrados.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2741,3 +2785,8 @@ Pega esto al iniciar:
 > **ACTUALIZACIÓN 3y:** jobs de fondo resueltos con `instrumentation.ts` (ver "Fase 3y"): purga de
 > papelera, sync del plugin y reconciliación de anotaciones ya corren. Siguen: Pieza D (cola de
 > descargas, ~900 líneas, ahora desbloqueada), Hardcover (sync service completo) y la Fase 4 (UI).
+>
+> **ACTUALIZACIÓN 3z:** Pieza D hecha (ver "Fase 3z"): la cola de descargas en background ya
+> existe y el troceo de adquisición queda 100 % cerrado. Del backend solo falta **Hardcover**
+> (sync service + cola de progreso + ajustes) y la **Fase 4** (UI real). Recuerda que los
+> jobs de fondo viven en `src/lib/server/jobs/background-jobs.ts`.

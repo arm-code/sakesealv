@@ -59,6 +59,11 @@ import { GetAnnotationUseCase } from "@/lib/server/application/use-cases/get-ann
 import { UpdateAnnotationUseCase } from "@/lib/server/application/use-cases/update-annotation";
 import { DeleteAnnotationUseCase } from "@/lib/server/application/use-cases/delete-annotation";
 import { ReindexAnnotationsUseCase } from "@/lib/server/application/use-cases/reindex-annotations";
+import { DownloadQueue } from "@/lib/server/infrastructure/queue/download-queue";
+import { QueueJobRepository } from "@/lib/server/infrastructure/repositories/queue-job-repository";
+import { QueueDownloadUseCase } from "@/lib/server/application/use-cases/queue-download";
+import { QueueSearchBookUseCase } from "@/lib/server/application/use-cases/queue-search-book";
+import { GetQueueStatusUseCase } from "@/lib/server/application/use-cases/get-queue-status";
 import { ProgressPersistenceService } from "@/lib/server/application/services/progress-persistence-service";
 import { SidecarWriteCoordinator } from "@/lib/server/application/services/sidecar-write-coordinator";
 
@@ -362,6 +367,13 @@ export const putLibraryFileUseCase = new PutLibraryFileUseCase(storage, bookRepo
   storeFromBuffer: (input) => storeManagedBookCoverFromBuffer(storage, input),
   storeFromSearchImport: (input) => storeManagedBookCoverFromSearchImport(storage, input, () => zlibraryMirrorSettingsRepository.get()),
 });
+
+// Fase 3z: cola de descargas en background (Pieza D). Los jobs de Hardcover no
+// están en la cola de estado porque su sync service sigue sin portar.
+export const downloadQueue = new DownloadQueue(new QueueJobRepository(), downloadBookUseCase, downloadSearchBookUseCase, putLibraryFileUseCase);
+export const queueDownloadUseCase = new QueueDownloadUseCase(downloadQueue);
+export const queueSearchBookUseCase = new QueueSearchBookUseCase(downloadQueue);
+export const getQueueStatusUseCase = new GetQueueStatusUseCase(downloadQueue);
 export const deleteLibraryFileUseCase = new DeleteLibraryFileUseCase(storage);
 
 // Fase 3s: huecos chicos de dispositivos/biblioteca.

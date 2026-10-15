@@ -66,3 +66,23 @@ export interface SearchBooksResponse {
     failedProviders: SearchProviderFailure[];
   };
 }
+
+// Cuerpo de POST /api/search/queue (Pieza D).
+export interface QueueSearchBookRequest {
+  provider: QueueableSearchProviderId;
+  providerBookId: string;
+  downloadRef: string;
+  title: string;
+  extension?: string | null;
+  author?: string | null;
+  series?: string | null;
+  volume?: string | null;
+  seriesIndex?: number | null;
+  identifier?: string | null;
+  pages?: number | null;
+  description?: string | null;
+  cover?: string | null;
+  filesize?: number | null;
+  language?: string | null;
+  year?: number | null;
+}

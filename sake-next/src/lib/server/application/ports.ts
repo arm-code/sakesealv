@@ -1,3 +1,4 @@
+import type { QueueableSearchProviderId } from "@/lib/types/search";
 import type { ReaderAnnotation } from "@/lib/koreader/koreader-sidecar";
 import type {
   AnnotationFacetsResponse,
@@ -373,4 +374,59 @@ export interface AnnotationRepositoryPort {
   getIndexSummary(parserVersion: number): Promise<AnnotationIndexSummary>;
   listIndexCandidates(parserVersion: number, bookId?: number): Promise<AnnotationIndexCandidate[]>;
   listAllForExport(query: AnnotationQuery): AsyncIterable<AnnotationHubItem>;
+}
+
+interface BaseQueueTaskInput {
+  bookId: string;
+  title: string;
+  extension: string;
+  author: string | null;
+  publisher: string | null;
+  series: string | null;
+  volume: string | null;
+  seriesIndex: number | null;
+  edition: string | null;
+  identifier: string | null;
+  pages: number | null;
+  description: string | null;
+  cover: string | null;
+  filesize: number | null;
+  language: string | null;
+  year: number | null;
+  userId: string;
+  userKey: string;
+}
+
+export interface ZLibraryQueueTaskInput extends BaseQueueTaskInput {
+  source: "zlibrary";
+  bookId: string;
+  hash: string;
+}
+
+export interface SearchImportQueueTaskInput extends BaseQueueTaskInput {
+  source: "provider-import";
+  provider: QueueableSearchProviderId;
+  downloadRef: string;
+}
+
+export type DownloadQueueTaskInput = ZLibraryQueueTaskInput | SearchImportQueueTaskInput;
+
+export interface QueueJobSnapshot {
+  id: string;
+  bookId: string;
+  title: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  attempts: number;
+  maxRetries: number;
+  author?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt?: string;
+}
+
+export interface DownloadQueuePort {
+  enqueue(task: DownloadQueueTaskInput): Promise<string>;
+  getStatus(): Promise<{ pending: number; processing: number }>;
+  getTasks(): Promise<QueueJobSnapshot[]>;
 }
