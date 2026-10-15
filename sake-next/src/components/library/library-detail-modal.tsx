@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Archive, BookOpen, Download, EyeOff, RefreshCw, Star, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Archive, BookOpen, BookOpenCheck, Download, EyeOff, RefreshCw, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -291,6 +292,15 @@ export function LibraryDetailModal({ book, shelves, onClose, onBookPatched, onBo
                       <EyeOff className="size-4" aria-hidden="true" />
                       {detail.excludeFromNewBooks ? "Include in new books" : "Exclude from new books"}
                     </Button>
+                    {detail.extension?.toLowerCase() === "epub" && (
+                      <Link
+                        href={`/library/${detail.bookId}/read`}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                      >
+                        <BookOpenCheck className="size-4" aria-hidden="true" />
+                        Read
+                      </Link>
+                    )}
                     <a
                       href={LibraryApi.downloadUrl(detail.fileName)}
                       download={detail.fileName}

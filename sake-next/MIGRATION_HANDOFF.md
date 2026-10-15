@@ -2690,6 +2690,43 @@ se dejó detenido.
 
 ---
 
+## Fase 4c — Lector web EPUB, núcleo (COMPLETA)
+
+**`/library/[id]/read`**: lector a pantalla completa (route group `(reader)`, fuera del shell).
+
+### Qué hace
+- Carga `GET /api/library/[id]/detail` (solo EPUB, 401 → login), el contenido
+  (`/api/library/[id]/content`) y el sidecar de KOReader en paralelo; renderiza con **epubjs 0.3.93**
+  (nueva dependencia), paginado y a dos páginas en pantallas anchas.
+- **Reanuda** desde `last_xpointer` de KOReader (con fallback al porcentaje) y **autoguarda** vía
+  `PUT /api/library/progress/web` con debounce de 700 ms, flush al ocultar/cerrar la pestaña. El
+  xpointer guardado es el formato KOReader (`/body/DocFragment[n]/body/...`), compatible con los
+  dispositivos.
+- Navegación: botones, flechas del teclado, toque en el cuarto izquierdo/derecho del texto, TOC
+  lateral; temas paper/night/sepia y tamaño de fuente (persisten en `localStorage`); pie con
+  capítulo, página `n/total` (locations de epubjs), % y estado de guardado.
+- Botón **Read** en el modal de detalle de library (solo EPUB).
+
+### Piezas
+`lib/reader/` (portadas del original: `koreader-xpointer`, `quote-recovery`, `reader-runtime`,
+`reader-save-queue`, `koreader-sidecar-client`, `reader-appearance`, `reader-pagination`,
+`reader-session-id`), `components/reader/{epub-reader,reader-page}.tsx`.
+
+### Fuera a propósito (siguen en 4c-2)
+Subrayados/marcadores/notas (la infraestructura `selectionFromCfi`/`annotationRange` ya está
+portada pero sin UI), modo RSVP (~1,000 líneas), barra lateral de anotaciones, deep link a una
+anotación, wake lock, estados del pie alternables, preferencias de tap.
+
+### Verificación (navegador real, `next dev` + DB temporal + SeaweedFS)
+EPUB de 3 capítulos subido por API: render a dos páginas, avance por botones, sidecar con
+`percent_finished` 0.304 y `last_xpointer` `.../DocFragment[1]/body/p[10]/text().568`, **reanuda en
+30 % al recargar**, salto por TOC a capítulo 3 (guarda `DocFragment[3]`, 69.6 %), tema night.
+`tsc` limpio. Datos (DB + objetos S3) borrados; contenedor SeaweedFS detenido.
+**Gotcha de dev:** crear una carpeta de ruta nueva con el servidor `next dev` ya levantado dejó
+TODAS las rutas en 404 hasta reiniciarlo.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2925,3 +2962,6 @@ Pega esto al iniciar:
 > **ACTUALIZACIÓN 4b-2:** detalle/bulk/estantes/subida hechos (ver "Fase 4b-2"). Siguen: lector (4c),
 > archived+trash (4d), search+queue (4e), stats+annotations (4f), logs (4g). La edición de portada y
 > el aplicar-candidato quedaron sin UI.
+>
+> **ACTUALIZACIÓN 4c:** lector EPUB núcleo hecho (ver "Fase 4c"). Falta 4c-2 (anotaciones/RSVP en el
+> lector), 4d (archived+trash), 4e (search+queue), 4f (stats+annotations), 4g (logs).
