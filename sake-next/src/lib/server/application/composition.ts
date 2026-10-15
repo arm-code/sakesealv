@@ -100,6 +100,7 @@ import { GetLibraryBookContentUseCase } from "@/lib/server/application/use-cases
 import { GetLibraryCoverUseCase } from "@/lib/server/application/use-cases/get-library-cover";
 import { SetBookShelvesUseCase } from "@/lib/server/application/use-cases/set-book-shelves";
 import { ListLibraryRatingsUseCase } from "@/lib/server/application/use-cases/list-library-ratings";
+import { GetReadingActivityStatsUseCase } from "@/lib/server/application/use-cases/get-reading-activity-stats";
 import { GetBookProgressHistoryUseCase } from "@/lib/server/application/use-cases/get-book-progress-history";
 import { UpdateBookRatingUseCase } from "@/lib/server/application/use-cases/update-book-rating";
 import { UpdateLibraryBookStateUseCase } from "@/lib/server/application/use-cases/update-library-book-state";
@@ -208,6 +209,7 @@ export const setBookShelvesUseCase = new SetBookShelvesUseCase(bookRepository, s
 
 export const listLibraryRatingsUseCase = new ListLibraryRatingsUseCase(bookRepository);
 export const getBookProgressHistoryUseCase = new GetBookProgressHistoryUseCase(bookRepository, bookProgressHistoryRepository);
+export const getReadingActivityStatsUseCase = new GetReadingActivityStatsUseCase(bookRepository, bookProgressHistoryRepository);
 export const updateBookRatingUseCase = new UpdateBookRatingUseCase(bookRepository);
 export const updateLibraryBookStateUseCase = new UpdateLibraryBookStateUseCase(bookRepository);
 

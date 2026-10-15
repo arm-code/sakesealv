@@ -19,6 +19,14 @@ export class BookRepository implements BookRepositoryPort {
     return rows.map((row) => mapBookWithDownloadRow(row));
   }
 
+  // Incluye libros en papelera, igual que el original (las estadisticas
+  // cuentan toda la actividad historica).
+  async getAllForStats(): Promise<Book[]> {
+    const rows = await drizzleDb.select(bookSelection).from(books).orderBy(desc(books.createdAt));
+
+    return rows.map((row) => mapBookRow(row));
+  }
+
   async getNotDownloadedByDevice(deviceId: string): Promise<Book[]> {
     const rows = await drizzleDb
       .select(bookSelection)

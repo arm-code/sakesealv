@@ -2436,6 +2436,27 @@ Ambos **solo sesión** (`requireSession`; la API key da 403).
 
 ---
 
+## Fase 3w — Detalle de lo hecho (COMPLETA)
+
+**Stats de lectura.** `GET /api/stats/reading-activity?days=30..730` (default 365), solo
+sesión (`requireSession`; no es ruta pública en el original). Es el único endpoint de stats.
+
+### Piezas
+- `use-cases/get-reading-activity-stats.ts` — portado tal cual (reconstruye páginas leídas
+  por día/hora/semana/mes y rachas desde `BookProgressHistory` x `Books.pages`).
+- `BookRepository.getAllForStats` (incluye libros en papelera, igual que el original) y
+  su entrada en `BookRepositoryPort`.
+- `getReadingActivityStatsUseCase` en `composition.ts`; ruta `app/api/stats/reading-activity/route.ts`.
+
+### Cosas a saber
+- Todo en UTC; el primer registro de historial de TODA la biblioteca no acredita páginas
+  (heredado). Hace una consulta de historial por libro (N+1), igual que el original.
+- **Verificación:** `tsc` limpio + `next dev -p 3100` con DB temporal: 401 sin sesión, 400
+  con `days=5`, y con historial sembrado (0.1→0.3→0.5→0.6 en 3 días, 100 págs) dio 50
+  páginas, 3 sesiones, racha 3 — el primer registro ignorado. DB temporal borrada.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2640,3 +2661,7 @@ Pega esto al iniciar:
 > **ACTUALIZACIÓN 3v:** los 2 streams SSE de logs están hechos (ver "Fase 3v"; el logger
 > ahora alimenta `webappLogFeed`). Siguen: annotations (~480), stats (~760) y la decisión de
 > jobs de fondo.
+>
+> **ACTUALIZACIÓN 3w:** stats hecho (ver "Fase 3w"). Siguen: annotations (~1,300 líneas en el
+> original: repo 461, servicios 336, 5 rutas; ahí se cablea `AnnotationIndexService` en
+> progress-persistence y export) y la decisión de jobs de fondo.

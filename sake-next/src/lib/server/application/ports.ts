@@ -65,12 +65,13 @@ export interface ShelfRepositoryPort {
 // Upload/ImportLibraryBookCoverUseCase (updateMetadata), y desde la pieza C
 // de adquisición Z-Library DownloadBookUseCase/LibraryImportCollisionService
 // (getByZLibId*, getByStorageKeyIncludingTrashed, create). El resto del
-// original (getAllForStats, getByTitle*, updateHardcoverId,
+// original (getByTitle*, updateHardcoverId,
 // touchProgressUpdatedAt, getNotDownloadedByDevice,
 // getBooksWithNewProgressForDevice, count) pertenece a mini-fases futuras
 // (dispositivos, estadísticas).
 export interface BookRepositoryPort {
   getAll(): Promise<Book[]>;
+  getAllForStats(): Promise<Book[]>;
   getById(id: number): Promise<Book | undefined>;
   getByIdIncludingTrashed(id: number): Promise<Book | undefined>;
   getByStorageKey(storageKey: string): Promise<Book | undefined>;
