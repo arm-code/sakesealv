@@ -2495,6 +2495,35 @@ sesión (`requireSession`; no es ruta pública en el original). Es el único end
 
 ---
 
+## Fase 3y — Detalle de lo hecho (COMPLETA)
+
+**Decisión de arquitectura de jobs de fondo: `src/instrumentation.ts`.** Next llama
+`register()` una vez al arrancar el servidor Node (no por request); ahí se lanza, sin await,
+`startBackgroundJobs()` (`lib/server/jobs/background-jobs.ts`), idempotente vía `globalThis`.
+
+### Jobs activos
+- **Purga de papelera** (`purgeExpiredTrashUseCase`): al arrancar y cada 6 h con `setInterval`
+  (`unref`). Cambio vs el original, que la disparaba en la primera request tras 6 h.
+  Salta con `SAKE_SKIP_TRASH_PURGE`.
+- **Sync de release del plugin KOReader** al arrancar (`SAKE_SKIP_STARTUP_PLUGIN_SYNC` lo salta).
+  Sube el artefacto del plugin al bucket si cambió, como el original.
+- **Reconciliación del índice de anotaciones** al arrancar (`SAKE_SKIP_ANNOTATION_INDEX_SYNC`).
+- Mismos nombres de env que el original, así que un `.env` existente sigue valiendo.
+
+### Cosas a saber
+- Sigue sin job: **Hardcover** (bloqueado, `HardcoverProgressSyncService` no portado) y la
+  **Pieza D** (cola de descargas en background, ~900 líneas) — esta última ya puede apoyarse en
+  este mismo punto de arranque, pero es trabajo propio.
+- Los jobs corren en el proceso web: en despliegues con varias réplicas se ejecutarían en cada una.
+- `register` solo actúa con `NEXT_RUNTIME=nodejs`; el import es dinámico para no arrastrar
+  `composition.ts` al runtime edge/proxy.
+- **Verificación:** `tsc` limpio + `next dev` con DB temporal: un libro en papelera expirado se
+  purgó al arrancar, el sync de plugin corrió y la reconciliación intentó indexar el libro con
+  `progress_storage_key` (falló por objeto S3 inexistente, esperado y solo con warn). DB temporal
+  borrada. No se probó el timer de 6 h.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2708,3 +2737,7 @@ Pega esto al iniciar:
 > web/dispositivo/export). Con esto el backend HTTP del original está portado salvo lo que
 > depende de la decisión de jobs de fondo (Pieza D cola de descargas, purga de papelera,
 > plugin sync, Hardcover). Siguen: esa decisión, y la Fase 4 (UI real de library/annotations/stats).
+>
+> **ACTUALIZACIÓN 3y:** jobs de fondo resueltos con `instrumentation.ts` (ver "Fase 3y"): purga de
+> papelera, sync del plugin y reconciliación de anotaciones ya corren. Siguen: Pieza D (cola de
+> descargas, ~900 líneas, ahora desbloqueada), Hardcover (sync service completo) y la Fase 4 (UI).
