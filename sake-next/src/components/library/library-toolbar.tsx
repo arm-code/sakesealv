@@ -1,6 +1,8 @@
 "use client";
 
-import { ArrowDown, ArrowUp, LayoutGrid, List, Search } from "lucide-react";
+import { useRef } from "react";
+import { ArrowDown, ArrowUp, CheckSquare, LayoutGrid, List, Search, Upload } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
@@ -23,6 +25,10 @@ interface LibraryToolbarProps {
   onSortFieldChange: (value: LibrarySortField) => void;
   onSortDirectionChange: (value: LibrarySortDirection) => void;
   onModeChange: (value: LibraryVisualMode) => void;
+  selectionMode: boolean;
+  isUploading: boolean;
+  onToggleSelection: () => void;
+  onFilesChosen: (files: File[]) => void;
 }
 
 const SELECT_CLASS =
@@ -55,9 +61,14 @@ export function LibraryToolbar({
   onSortFieldChange,
   onSortDirectionChange,
   onModeChange,
+  selectionMode,
+  isUploading,
+  onToggleSelection,
+  onFilesChosen,
 }: LibraryToolbarProps) {
+  const fileInput = useRef<HTMLInputElement>(null);
   return (
-    <section className="flex flex-col gap-3 sm:flex-row sm:items-center">
+    <section className="flex flex-col gap-3 xl:flex-row xl:items-center">
       <div className="relative flex-1">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
         <Input
@@ -71,6 +82,27 @@ export function LibraryToolbar({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          accept=".epub,.pdf,.mobi,.azw3,.cbz,.fb2,.txt"
+          className="hidden"
+          aria-label="Upload books"
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            event.target.value = "";
+            if (files.length > 0) onFilesChosen(files);
+          }}
+        />
+        <Button variant="outline" disabled={isUploading} onClick={() => fileInput.current?.click()}>
+          <Upload className="size-4" aria-hidden="true" />
+          {isUploading ? "Uploading..." : "Upload"}
+        </Button>
+        <Button variant={selectionMode ? "secondary" : "outline"} aria-pressed={selectionMode} onClick={onToggleSelection}>
+          <CheckSquare className="size-4" aria-hidden="true" />
+          Select
+        </Button>
         <select
           aria-label="Filter by reading status"
           value={status}

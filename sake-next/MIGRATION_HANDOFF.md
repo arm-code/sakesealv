@@ -2649,6 +2649,47 @@ sin cover); las portadas gestionadas salen de `/api/library/covers/...` con la c
 
 ---
 
+## Fase 4b-2 — Detalle, selección/bulk, estantes y subida (COMPLETA)
+
+**La lista de library (4b-1) ya es operable.** Todo sobre `/library`, sin rutas nuevas de API.
+
+### Piezas (`components/library/`)
+- `library-detail-modal.tsx` + `use-library-book-detail.ts`: modal con 4 tabs. **Overview**
+  (datos, rating con estrellas, estantes como chips toggle, leído/no leído, archivar, excluir de
+  "new books", descargar, mover a papelera con confirmación), **Progress** (barra + historial),
+  **Metadata** (vista + edición de los campos de texto/numéricos, Refetch) y **Devices**
+  (descargas por dispositivo, quitar una / resetear todas). Se abre con `?book=ID` (deep link) y
+  parchea la fila de la lista sin recargarla.
+- Selección: botón **Select** en la toolbar → tiles seleccionables; `library-bulk-bar.tsx` con
+  seleccionar todo/limpiar, añadir/quitar de estante, marcar leído/no leído, archivar y papelera
+  (confirmación). El bulk es una llamada por libro en serie (como el original) y recarga la lista.
+- **Subida:** botón **Upload** (multi-archivo) y drag&drop sobre la vista con overlay; hace
+  `PUT /api/library/{nombre}` con los bytes crudos, un archivo tras otro, toast por error/éxito.
+- `lib/client/library-api.ts` ampliado (detail, history, rating, shelves, state, trash, metadata,
+  refetch, downloads, upload).
+
+### Gotchas
+- `PUT /api/library/[id]/state` devuelve `progressPercent` como **fracción 0..1** (el listado lo da
+  en 0..100). El hook convierte; el original hace lo mismo (`* 100`).
+- En `next dev` la primera llamada a cada ruta compila (varios segundos); el modal bloquea otras
+  acciones mientras hay una pendiente, así que clics rápidos seguidos parecen "perdidos".
+
+### Fuera a propósito
+Edición de portada (subir imagen / importar por URL), aplicar candidato de metadata (UI de
+búsqueda de candidatos), reset de progreso con modal propio, long-press para entrar en selección,
+abrir en el lector (4c).
+
+### Verificación (navegador real, `next dev` + DB temporal + SeaweedFS)
+Modal (rating 2→4, estante toggle, marcar leído → "Read"/"Mark as unread"), edición de metadata
+(Publisher → "Metadata saved"), selección múltiple + añadir a estante (3 libros), papelera bulk con
+confirmación, subida por input y por drop de un EPUB real (título/autor extraídos del OPF),
+overlay de drop. `tsc` limpio. Datos (DB + 2 objetos S3) borrados.
+**Nota de entorno:** el contenedor `sake-seaweedfs` había desaparecido de Docker; se recreó con
+`docker compose -f docker-compose.selfhost.yaml up -d seaweedfs seaweedfs-init` (imagen local) y
+se dejó detenido.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
@@ -2880,3 +2921,7 @@ Pega esto al iniciar:
 > **ACTUALIZACIÓN 4a/4b-1:** login/bootstrap, gating de sesión y la lista de library ya son UI real
 > (ver "Fase 4a + 4b-1"). Sigue 4b-2 (detalle modal, selección/bulk, subir archivos), luego
 > lector (4c), archived+trash (4d), search+queue (4e), stats+annotations (4f), logs (4g).
+>
+> **ACTUALIZACIÓN 4b-2:** detalle/bulk/estantes/subida hechos (ver "Fase 4b-2"). Siguen: lector (4c),
+> archived+trash (4d), search+queue (4e), stats+annotations (4f), logs (4g). La edición de portada y
+> el aplicar-candidato quedaron sin UI.

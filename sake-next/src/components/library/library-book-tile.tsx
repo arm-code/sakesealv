@@ -6,6 +6,9 @@ import type { LibraryBook, LibraryVisualMode } from "@/lib/library/types";
 interface LibraryBookItemProps {
   book: LibraryBook;
   mode: LibraryVisualMode;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onActivate: (book: LibraryBook) => void;
 }
 
 function BookCover({ book, className, showFormat = true }: { book: LibraryBook; className?: string; showFormat?: boolean }) {
@@ -47,15 +50,40 @@ function Rating({ rating }: { rating: number | null }) {
   );
 }
 
+function SelectionIndicator({ selected }: { selected: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-full border text-[0.7rem] font-bold",
+        selected ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background/90 text-transparent",
+      )}
+    >
+      ✓
+    </span>
+  );
+}
+
 const STATUS_LABEL = { unread: "Unread", reading: "Reading", read: "Read" } as const;
 
-export function LibraryBookItem({ book, mode }: LibraryBookItemProps) {
+export function LibraryBookItem({ book, mode, selectionMode = false, selected = false, onActivate }: LibraryBookItemProps) {
   const percent = clampProgress(book.progressPercent);
   const status = getBookStatus(book);
 
   if (mode === "list") {
     return (
-      <li className="flex items-center gap-3 rounded-lg border border-border bg-card p-2.5">
+      <li>
+        <button
+          type="button"
+          onClick={() => onActivate(book)}
+          aria-label={`${selectionMode ? (selected ? "Deselect" : "Select") : "Show details for"} ${book.title}`}
+          aria-pressed={selectionMode ? selected : undefined}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-lg border bg-card p-2.5 text-left transition-colors hover:bg-secondary/60",
+            selected ? "border-primary ring-2 ring-primary" : "border-border",
+          )}
+        >
+        {selectionMode && <SelectionIndicator selected={selected} />}
         <BookCover book={book} className="h-16 w-11 shrink-0" showFormat={false} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <p className="truncate text-sm font-medium text-foreground">{book.title}</p>
@@ -72,13 +100,28 @@ export function LibraryBookItem({ book, mode }: LibraryBookItemProps) {
             <Rating rating={book.rating} />
           </div>
         </div>
+        </button>
       </li>
     );
   }
 
   return (
-    <li className="flex flex-col gap-2">
-      <BookCover book={book} className="aspect-[2/3] w-full" />
+    <li>
+      <button
+        type="button"
+        onClick={() => onActivate(book)}
+        aria-label={`${selectionMode ? (selected ? "Deselect" : "Select") : "Show details for"} ${book.title}`}
+        aria-pressed={selectionMode ? selected : undefined}
+        className="flex w-full flex-col gap-2 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+      <div className="relative">
+        <BookCover book={book} className={cn("aspect-[2/3] w-full transition-shadow", selected && "ring-2 ring-primary")} />
+        {selectionMode && (
+          <div className="absolute right-1.5 top-1.5">
+            <SelectionIndicator selected={selected} />
+          </div>
+        )}
+      </div>
       <div className="flex flex-col gap-1">
         <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground" title={book.title}>
           {book.title}
@@ -90,6 +133,7 @@ export function LibraryBookItem({ book, mode }: LibraryBookItemProps) {
           <Rating rating={book.rating} />
         </div>
       </div>
+      </button>
     </li>
   );
 }
