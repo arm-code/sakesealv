@@ -2748,6 +2748,39 @@ y el modal de detalle abierto desde `/archived`.
 
 ---
 
+## Fase 4e — Search + Queue (COMPLETA)
+
+**`/queue` y `/search`** (links ya existían en el sidebar). Sin rutas de API nuevas.
+
+### Queue (`components/queue/queue-view.tsx`, `lib/client/queue-api.ts`)
+`GET /api/queue` con sondeo cada 5 s (sin solapar peticiones), 5 tarjetas de conteo, tabs por
+estado (All/Queued/Processing/Completed/Skipped/Failed) y tarjeta por job (tipo, estado, barra de
+progreso objetivo, error/outcome, fechas, reintentos con "max reached").
+
+### Search (`components/search/`, `lib/search/view.ts`, `lib/client/search-api.ts`)
+- `app/(app)/search/page.tsx` es **server component**: lee `ACTIVATED_PROVIDERS` con
+  `getActivatedSearchProviders()` y se lo pasa a `SearchView` (en el original venía del
+  `+layout.server.ts`). Sin providers activos muestra aviso "Search is disabled".
+- Filtros como chips (providers/idiomas/formatos), orden (`<select>`), año desde/hasta, "Only with
+  files"; persisten en `localStorage` con las mismas claves del original (`sake.search.*`).
+- Resultados agrupados por provider (colapsables), modal de detalles con lookup de metadata
+  (`POST /api/zlibrary/search/metadata`), diálogo de ajuste de título, **Download** (Z-Library →
+  `/api/zlibrary/download`, resto → `/api/search/download`; guarda el blob en el navegador) y
+  **Library** (Z-Library → `/api/zlibrary/queue`, resto → `/api/search/queue`).
+
+### Fuera a propósito
+El sidebar sigue mostrando "Search" aunque no haya providers (`searchEnabled` no se cablea desde el
+layout); no hay spinner global de página, solo el overlay de descarga.
+
+### Verificación
+`tsc` limpio. Navegador real (`next dev` + DB temporal): queue con jobs sembrados (conteos, tab
+Failed, "max reached"); search real contra OpenLibrary (20 resultados con portadas), modal con
+metadata real (publisher, rating 4.2/409), diálogo de título y POST `/api/search/queue` 200 desde la
+UI. **No probado:** descarga directa (blob) de ningún provider, Z-Library (sin cuenta), Anna/Gutenberg.
+Datos y servidor borrados.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
