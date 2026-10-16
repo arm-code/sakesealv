@@ -2830,6 +2830,42 @@ dispositivo (hay que registrar uno y enviar `POST /api/devices/logs`).
 
 ---
 
+## Fase 4c-2a — Anotaciones en el lector (COMPLETA)
+
+4c-2 se troceó: **4c-2a** (esta, anotaciones) y **4c-3** (modo RSVP, pendiente: `rsvpText` 359,
+`rsvpEpub` 375, `rsvpPlayback` 150, `rsvpPreferences`, `RsvpReader.svelte` 188 + enganche en la página).
+
+### Qué hace (`components/reader/epub-reader.tsx` + `reader-annotations-panel.tsx`)
+- **Subrayados:** `rendition.on("selected")` → `selectionFromCfi` → diálogo (color de `HIGHLIGHT_COLORS`
+  + nota opcional) → `ReaderSaveQueue.upsert` + `schedule(0)`. Se pintan con
+  `rendition.annotations.highlight` en cada `rendered` (mapa `annotationId → cfi` para poder quitarlos).
+- **Marcadores** (botón en la cabecera, usa el último xpointer) y **borrado** (quita el highlight del
+  render y `queue.delete`).
+- **Panel lateral** con dos vistas (Contents / Annotations, botones separados en la cabecera): lista
+  ordenada por fecha con capítulo, texto, nota; clic navega con `displayKoreaderXPointer`.
+- El `onSaved` de la cola ahora aplica el sidecar fusionado (`snapshot.annotations`), así que
+  anotaciones de otros dispositivos aparecen tras el siguiente guardado.
+- **Deep link `?annotationId=`** (desde `/annotations`): `GET /api/annotations/[id]` (nuevo
+  `AnnotationsApi.get`), valida que sea del libro, abre en `pos0 ?? page`; id inválido/ajeno →
+  aviso y se usa la posición guardada. **Un salto por enlace no guarda posición** hasta que el
+  usuario navega (flechas, toque, botones, TOC, panel).
+- Avisos con un toast propio (`notice`) dentro del lector.
+
+### Fuera a propósito
+RSVP (4c-3), wake lock, estados alternables del pie, preferencias de toque, edición de una anotación
+existente desde el lector (se edita en `/annotations`).
+
+### Verificación
+`tsc` limpio. Navegador real (`next dev` + DB temporal + SeaweedFS, EPUB de 3 capítulos subido): selección
+→ highlight azul con nota pintado; marcador; recarga y panel lista ambos (persistidos en el sidecar S3);
+`/api/annotations` los indexa (2); deep link `annotationId=1` abre en el capítulo 1 con la posición
+guardada en cap. 3 y **no la sobrescribe** (68.6 % intacto en DB); `annotationId=999` muestra el aviso.
+**No probado:** borrar desde el panel, colores distintos de blue, anotaciones de otro dispositivo.
+**Gotcha:** en dev la generación de locations (`locations.generate(1200)`) tarda 20-70 s mientras
+otro lector compite por CPU; el lector queda en "Opening book..." hasta que termina.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:

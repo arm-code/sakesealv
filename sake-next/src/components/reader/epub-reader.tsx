@@ -6,7 +6,8 @@ import type Book from "epubjs/types/book";
 import type { NavItem } from "epubjs/types/navigation";
 import type Rendition from "epubjs/types/rendition";
 import type { Location } from "epubjs/types/rendition";
-import { ArrowLeft, ChevronLeft, ChevronRight, List, Minus, Plus } from "lucide-react";
+import type Contents from "epubjs/types/contents";
+import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, Highlighter, List, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -20,8 +21,25 @@ import { fetchKoreaderSidecar } from "@/lib/reader/koreader-sidecar-client";
 import { ReaderSaveQueue } from "@/lib/reader/reader-save-queue";
 import { createReaderSessionId } from "@/lib/reader/reader-session-id";
 import { bookPageFromLocation } from "@/lib/reader/reader-pagination";
-import { chapterFor, cfiToKoreaderXPointer, displayKoreaderXPointer } from "@/lib/reader/reader-runtime";
-import type { SidecarSnapshot } from "@/lib/koreader/koreader-sidecar";
+import {
+  annotationRange,
+  chapterFor,
+  cfiToKoreaderXPointer,
+  displayKoreaderXPointer,
+  renditionContents,
+  selectionFromCfi,
+  xpointerSpineIndex,
+  type SelectionDraft,
+} from "@/lib/reader/reader-runtime";
+import {
+  createAnnotationId,
+  HIGHLIGHT_COLORS,
+  koreaderDateTime,
+  type ReaderAnnotation,
+  type SidecarSnapshot,
+} from "@/lib/koreader/koreader-sidecar";
+import { AnnotationsApi } from "@/lib/client/annotations-api";
+import { ReaderAnnotationsPanel } from "./reader-annotations-panel";
 
 interface EpubReaderProps {
   bookId: number;
@@ -61,17 +79,49 @@ function flattenToc(items: NavItem[], depth = 0): Array<{ item: NavItem; depth: 
   return items.flatMap((item) => [{ item, depth }, ...flattenToc(item.subitems ?? [], depth + 1)]);
 }
 
+interface ReaderAnnotationTarget {
+  xpointer: string;
+}
+
+type ReaderPanel = "contents" | "annotations" | null;
+
+async function loadDeepLinkedAnnotation(bookId: number): Promise<{ annotation: ReaderAnnotationTarget | null; warning: string | null }> {
+  const raw = new URLSearchParams(window.location.search).get("annotationId");
+  if (raw === null) return { annotation: null, warning: null };
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id <= 0) {
+    return { annotation: null, warning: "This annotation link is invalid. Your saved reading position was opened instead." };
+  }
+  try {
+    const item = await AnnotationsApi.get(id);
+    if (item.book.id !== bookId) throw new Error("wrong book");
+    return { annotation: { xpointer: item.pos0 ?? item.page }, warning: null };
+  } catch {
+    return { annotation: null, warning: "This annotation is no longer available. Your saved reading position was opened instead." };
+  }
+}
+
 export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const saveQueueRef = useRef<ReaderSaveQueue | null>(null);
   const positionRef = useRef({ percentFinished: 0, lastXPointer: null as string | null });
   const restoringRef = useRef(true);
+  const annotationsRef = useRef<ReaderAnnotation[]>([]);
+  const renderedRef = useRef(new Map<string, string>());
+  const spineCountRef = useRef(1);
+  const tocRef = useRef<NavItem[]>([]);
+  const bookRef = useRef<Book | null>(null);
 
   const [theme, setTheme] = useState<ReaderTheme>("paper");
   const [fontSize, setFontSize] = useState(100);
   const [toc, setToc] = useState<NavItem[]>([]);
-  const [tocOpen, setTocOpen] = useState(false);
+  const [panel, setPanel] = useState<ReaderPanel>(null);
+  const [annotations, setAnnotationsState] = useState<ReaderAnnotation[]>([]);
+  const [selection, setSelection] = useState<SelectionDraft | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [highlightColor, setHighlightColor] = useState<string>("yellow");
+  const [notice, setNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<{ isSaving: boolean; error: string | null }>({ isSaving: false, error: null });
@@ -98,6 +148,31 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
     if (renditionRef.current) applyReaderAppearance(renditionRef.current, theme, fontSize);
   }, [theme, fontSize]);
 
+  const setAnnotations = useCallback((next: ReaderAnnotation[]) => {
+    annotationsRef.current = next;
+    setAnnotationsState(next);
+  }, []);
+
+  // Dibuja en la vista actual los subrayados que aún no están pintados.
+  const renderVisibleAnnotations = useCallback(() => {
+    const rendition = renditionRef.current;
+    if (!rendition) return;
+    for (const contents of renditionContents(rendition)) {
+      for (const annotation of annotationsRef.current) {
+        if (annotation.kind !== "highlight" || renderedRef.current.has(annotation.id)) continue;
+        if (xpointerSpineIndex(annotation.page) !== contents.sectionIndex) continue;
+        const range = annotationRange(contents, annotation, spineCountRef.current);
+        if (!range) continue;
+        const cfi = contents.cfiFromRange(range);
+        rendition.annotations.highlight(cfi, { annotationId: annotation.id }, undefined, "sake-reader-highlight", {
+          fill: annotation.color ?? "yellow",
+          "fill-opacity": "0.32",
+        });
+        renderedRef.current.set(annotation.id, cfi);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let book: Book | null = null;
@@ -111,10 +186,11 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
 
     async function init() {
       try {
-        const [contentResponse, sidecar, epubModule] = await Promise.all([
+        const [contentResponse, sidecar, epubModule, deepLink] = await Promise.all([
           fetch(`/api/library/${bookId}/content`),
           fetchKoreaderSidecar(fileName).catch((): SidecarSnapshot | null => null),
           import("epubjs"),
+          loadDeepLinkedAnnotation(bookId),
         ]);
         if (!contentResponse.ok) throw new Error("Failed to load EPUB content");
         const data = await contentResponse.arrayBuffer();
@@ -127,6 +203,11 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
         const navigation = await book.loaded.navigation;
         if (cancelled) return;
         setToc(navigation.toc);
+        tocRef.current = navigation.toc;
+        bookRef.current = book;
+        spineCountRef.current = spineCount;
+        setAnnotations(sidecar?.annotations ?? []);
+        if (deepLink.warning) setNotice(deepLink.warning);
 
         positionRef.current = { percentFinished: sidecar?.percentFinished ?? 0, lastXPointer: sidecar?.lastXPointer ?? null };
         setPercent(positionRef.current.percentFinished);
@@ -139,7 +220,11 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
           fileName,
           createReaderSessionId(),
           () => positionRef.current,
-          () => undefined,
+          (snapshot) => {
+            // El sidecar fusionado puede traer anotaciones de otros dispositivos.
+            setAnnotations(snapshot.annotations);
+            renderVisibleAnnotations();
+          },
           (status) => setSaveStatus(status),
         );
         saveQueueRef.current = saveQueue;
@@ -176,23 +261,43 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
           }
         });
 
+        rendition.on("selected", (cfiRange: string, contents: Contents) => {
+          const draft = selectionFromCfi(contents, cfiRange, spineCount, chapterFor(activeBook, navigation.toc, contents.sectionIndex));
+          setSelection(draft);
+          setNoteDraft("");
+          setHighlightColor("yellow");
+        });
+        rendition.on("rendered", renderVisibleAnnotations);
+
         // Zonas de toque: tercio izquierdo/derecho navegan, el centro no hace nada.
         rendition.on("click", (event: MouseEvent) => {
           const view = event.view as Window | null;
           const width = view?.innerWidth ?? 0;
           if (!width) return;
           const x = event.clientX % width;
-          if (x < width * 0.25) void activeRendition.prev();
-          else if (x > width * 0.75) void activeRendition.next();
+          if (x < width * 0.25) {
+            restoringRef.current = false;
+            void activeRendition.prev();
+          } else if (x > width * 0.75) {
+            restoringRef.current = false;
+            void activeRendition.next();
+          }
         });
         rendition.on("keyup", (event: KeyboardEvent) => {
+          if (event.key === "ArrowLeft" || event.key === "ArrowRight") restoringRef.current = false;
           if (event.key === "ArrowLeft") void activeRendition.prev();
           if (event.key === "ArrowRight") void activeRendition.next();
         });
 
         const saved = positionRef.current;
         let restored = false;
-        if (saved.lastXPointer) restored = await displayKoreaderXPointer(rendition, saved.lastXPointer, spineCount);
+        let jumpedToLink = false;
+        if (deepLink.annotation) {
+          restored = await displayKoreaderXPointer(rendition, deepLink.annotation.xpointer, spineCount);
+          jumpedToLink = restored;
+          if (!restored) setNotice("The linked position could not be opened; the stored reading position was used.");
+        }
+        if (!restored && saved.lastXPointer) restored = await displayKoreaderXPointer(rendition, saved.lastXPointer, spineCount);
         if (!restored) {
           if (saved.percentFinished > 0) {
             try {
@@ -204,7 +309,8 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
             await rendition.display();
           }
         }
-        restoringRef.current = false;
+        // Un salto por enlace no sobrescribe la posición guardada hasta que el usuario navegue.
+        restoringRef.current = jumpedToLink;
 
         window.addEventListener("pagehide", handlePageHide);
         document.addEventListener("visibilitychange", handleVisibility);
@@ -225,12 +331,19 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
       saveQueueRef.current = null;
       rendition?.destroy();
       renditionRef.current = null;
+      renderedRef.current.clear();
       book?.destroy();
     };
-  }, [bookId, fileName]);
+  }, [bookId, fileName, setAnnotations, renderVisibleAnnotations]);
 
-  const goPrev = useCallback(() => void renditionRef.current?.prev(), []);
-  const goNext = useCallback(() => void renditionRef.current?.next(), []);
+  const goPrev = useCallback(() => {
+    restoringRef.current = false;
+    void renditionRef.current?.prev();
+  }, []);
+  const goNext = useCallback(() => {
+    restoringRef.current = false;
+    void renditionRef.current?.next();
+  }, []);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -254,9 +367,72 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
   }
 
   async function openChapter(href: string) {
-    setTocOpen(false);
+    setPanel(null);
     restoringRef.current = false;
     await renditionRef.current?.display(href);
+  }
+
+  function saveHighlight() {
+    const queue = saveQueueRef.current;
+    if (!selection || !queue) return;
+    const datetime = koreaderDateTime();
+    const base = {
+      kind: "highlight" as const,
+      ...selection,
+      note: noteDraft.trim() || undefined,
+      drawer: "lighten",
+      color: highlightColor,
+      datetime,
+      datetimeUpdated: datetime,
+    };
+    const annotation: ReaderAnnotation = { ...base, id: createAnnotationId(base) };
+    setAnnotations([...annotationsRef.current.filter((item) => item.id !== annotation.id), annotation]);
+    queue.upsert(annotation);
+    setSelection(null);
+    renderVisibleAnnotations();
+    queue.schedule(0);
+  }
+
+  function addBookmark() {
+    const queue = saveQueueRef.current;
+    const xpointer = positionRef.current.lastXPointer;
+    if (!queue) return;
+    if (!xpointer) {
+      setNotice("Move to a page first to add a bookmark");
+      return;
+    }
+    const datetime = koreaderDateTime();
+    const base = {
+      kind: "bookmark" as const,
+      page: xpointer,
+      chapter: bookRef.current ? chapterFor(bookRef.current, tocRef.current, xpointerSpineIndex(xpointer)) : undefined,
+      datetime,
+      datetimeUpdated: datetime,
+    };
+    const annotation: ReaderAnnotation = { ...base, id: createAnnotationId(base) };
+    setAnnotations([...annotationsRef.current, annotation]);
+    queue.upsert(annotation);
+    queue.schedule(0);
+    setNotice("Bookmark added");
+  }
+
+  function deleteAnnotation(annotation: ReaderAnnotation) {
+    const queue = saveQueueRef.current;
+    const cfi = renderedRef.current.get(annotation.id);
+    if (cfi && renditionRef.current) renditionRef.current.annotations.remove(cfi, "highlight");
+    renderedRef.current.delete(annotation.id);
+    setAnnotations(annotationsRef.current.filter((item) => item.id !== annotation.id));
+    queue?.delete(annotation.id);
+    queue?.schedule(0);
+  }
+
+  async function openAnnotation(annotation: ReaderAnnotation) {
+    const rendition = renditionRef.current;
+    if (!rendition) return;
+    setPanel(null);
+    restoringRef.current = false;
+    const opened = await displayKoreaderXPointer(rendition, annotation.pos0 ?? annotation.page, spineCountRef.current);
+    if (!opened) setNotice("This annotation could not be opened in the web reader; your current position was kept.");
   }
 
   const flatToc = flattenToc(toc);
@@ -298,7 +474,13 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
           <Button variant="ghost" size="icon" aria-label="Increase font size" disabled={fontSize >= MAX_FONT} onClick={() => changeFont(FONT_STEP)} className="text-current">
             <Plus className="size-4" aria-hidden="true" />
           </Button>
-          <Button variant="ghost" size="icon" aria-label="Table of contents" aria-expanded={tocOpen} onClick={() => setTocOpen((open) => !open)} className="text-current">
+          <Button variant="ghost" size="icon" aria-label="Add bookmark" onClick={addBookmark} className="text-current">
+            <Bookmark className="size-4" aria-hidden="true" />
+          </Button>
+          <Button variant="ghost" size="icon" aria-label="Annotations" aria-expanded={panel === "annotations"} onClick={() => setPanel((current) => (current === "annotations" ? null : "annotations"))} className="text-current">
+            <Highlighter className="size-4" aria-hidden="true" />
+          </Button>
+          <Button variant="ghost" size="icon" aria-label="Table of contents" aria-expanded={panel === "contents"} onClick={() => setPanel((current) => (current === "contents" ? null : "contents"))} className="text-current">
             <List className="size-4" aria-hidden="true" />
           </Button>
         </div>
@@ -323,27 +505,76 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
           <ChevronRight className="size-6" aria-hidden="true" />
         </button>
 
-        {tocOpen && (
-          <aside className="absolute inset-y-0 right-0 z-10 w-72 max-w-[85%] overflow-y-auto border-l border-current/15 bg-inherit p-3 shadow-xl" aria-label="Table of contents">
-            {flatToc.length === 0 ? (
-              <p className="text-sm opacity-70">This book has no table of contents.</p>
+        {panel && (
+          <aside className="absolute inset-y-0 right-0 z-10 w-72 max-w-[85%] overflow-y-auto border-l border-current/15 bg-inherit p-3 shadow-xl" aria-label={panel === "contents" ? "Table of contents" : "Annotations"}>
+            {panel === "contents" ? (
+              flatToc.length === 0 ? (
+                <p className="text-sm opacity-70">This book has no table of contents.</p>
+              ) : (
+                <ul className="flex flex-col">
+                  {flatToc.map(({ item, depth }, index) => (
+                    <li key={`${item.href}-${index}`}>
+                      <button
+                        type="button"
+                        onClick={() => void openChapter(item.href)}
+                        style={{ paddingLeft: `${0.5 + depth * 0.9}rem` }}
+                        className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-current/10"
+                      >
+                        {item.label.trim()}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )
             ) : (
-              <ul className="flex flex-col">
-                {flatToc.map(({ item, depth }, index) => (
-                  <li key={`${item.href}-${index}`}>
-                    <button
-                      type="button"
-                      onClick={() => void openChapter(item.href)}
-                      style={{ paddingLeft: `${0.5 + depth * 0.9}rem` }}
-                      className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-current/10"
-                    >
-                      {item.label.trim()}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <ReaderAnnotationsPanel annotations={annotations} onOpen={(annotation) => void openAnnotation(annotation)} onDelete={deleteAnnotation} />
             )}
           </aside>
+        )}
+
+        {selection && (
+          <div role="dialog" aria-label="Save highlight" className="absolute inset-x-3 bottom-3 z-20 mx-auto flex max-w-md flex-col gap-2 rounded-xl border border-current/20 bg-inherit p-3 shadow-xl">
+            <p className="line-clamp-4 text-sm">{selection.text}</p>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Highlight color">
+              {HIGHLIGHT_COLORS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  aria-label={color}
+                  aria-pressed={highlightColor === color}
+                  onClick={() => setHighlightColor(color)}
+                  className={cn("size-5 rounded-full border border-current/30", highlightColor === color && "ring-2 ring-current ring-offset-1")}
+                  style={{ background: color }}
+                />
+              ))}
+            </div>
+            <textarea
+              value={noteDraft}
+              onChange={(event) => setNoteDraft(event.target.value)}
+              rows={2}
+              maxLength={20000}
+              placeholder="Add a note (optional)"
+              aria-label="Note"
+              className="rounded-lg border border-current/20 bg-transparent p-2 text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" className="text-current" onClick={() => setSelection(null)}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={saveHighlight}>
+                Highlight
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {notice && (
+          <div role="status" className="absolute left-1/2 top-3 z-20 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-lg border border-current/20 bg-inherit px-3 py-1.5 text-xs shadow-lg">
+            <span>{notice}</span>
+            <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)} className="opacity-70 hover:opacity-100">
+              ×
+            </button>
+          </div>
         )}
       </div>
 

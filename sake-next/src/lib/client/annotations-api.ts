@@ -25,6 +25,7 @@ export function annotationQueryParams(query: AnnotationQuery, includeCursor = tr
 
 export const AnnotationsApi = {
   list: (query: AnnotationQuery) => request<AnnotationListResponse>(`/api/annotations?${annotationQueryParams(query)}`),
+  get: (id: number) => request<AnnotationHubItem>(`/api/annotations/${id}`),
   facets: () => request<AnnotationFacetsResponse>("/api/annotations/facets"),
   update: (id: number, body: UpdateAnnotationRequest) =>
     request<AnnotationHubItem>(`/api/annotations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
