@@ -2866,6 +2866,44 @@ otro lector compite por CPU; el lector queda en "Opening book..." hasta que term
 
 ---
 
+## Fase 4c-3 — Modo RSVP en el lector (COMPLETA)
+
+**Con esto 4c queda completa** (núcleo + anotaciones + RSVP). Salvo wake lock, estados del pie
+alternables y preferencias de toque (ver "Fuera a propósito").
+
+### Piezas
+- `lib/reader/rsvp-{text,epub,playback,preferences}.ts`: **portadas tal cual** del original (tokenización
+  por párrafo con `Intl.Segmenter`, sesión sobre epubjs con caché de 3 secciones, controlador de
+  reproducción con retardos por puntuación, preferencias en `localStorage`). Convertidas con script
+  (tabs→2 espacios, comillas, nombres de import); sin cambios de lógica.
+- `components/reader/use-rsvp.ts`: hook que orquesta sesión/reproducción/guardado (equivale a la lógica
+  RSVP de la página original): `enter(explicit?)`, `exit()` (anota última palabra, pausa, guarda y
+  restaura la vista paginada con `onExit`), `toggle`, `jumpWords`, `jumpSentence`, `updatePrefs`.
+  En cada token actualiza `positionRef`/`locationRef`; mientras reproduce, flush cada 10 s y al pausar.
+- `components/reader/rsvp-reader.tsx`: UI (palabra con letra focal roja, guías, transporte, sliders de
+  velocidad 100–1000 WPM y tamaño, casillas guía/última palabra, atajos: Espacio, ←/→ ±10 palabras,
+  Shift+←/→ frase, ↑/↓ velocidad, Esc sale — Esc se ignora con foco en input/botón, igual que el original).
+- `epub-reader.tsx`: botón RSVP (⚡) en la cabecera, "Start RSVP here" en el diálogo de selección,
+  overlay `z-30` sobre el visor (el rendition sigue montado), teclado paginado desactivado en RSVP,
+  `locationRef` (cfi + spine del último `relocated`).
+- "Save last word as note": al salir crea un highlight amarillo con nota `RSVP last word: <palabra>`.
+
+### Fuera a propósito
+`rsvpEntryOverride` (entrar a RSVP desde el último highlight guardado), saltar a una anotación estando en
+RSVP (`seekXPointer` está portado pero sin UI), wake lock, estados alternables del pie, preferencias de toque.
+
+### Verificación
+`tsc` limpio; eslint solo el patrón `set-state-in-effect` ya aceptado. Navegador real (`next dev` + DB
+temporal + SeaweedFS): entrar con el botón (palabra "Chapter", focal en rojo), Play (69→71 %), pausa con
+Espacio, saltos +10 (71→74 %), última palabra → anotación indexada, "Page View", entrada desde selección
+(arranca en la palabra seleccionada), Esc. **No probado:** fin de libro ("Book complete"), cambio de
+sliders, shift+flechas.
+**Gotcha de prueba:** con párrafos gigantes (EPUB sintético) epubjs reporta como posición de página el
+inicio del párrafo, así que al volver de RSVP el pie puede mostrar un % menor y la cola lo guarda; con
+libros reales (párrafos cortos) no ocurre. El primer render del lector en dev puede tardar 30-90 s.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:

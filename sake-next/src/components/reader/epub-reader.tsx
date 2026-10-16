@@ -7,7 +7,7 @@ import type { NavItem } from "epubjs/types/navigation";
 import type Rendition from "epubjs/types/rendition";
 import type { Location } from "epubjs/types/rendition";
 import type Contents from "epubjs/types/contents";
-import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, Highlighter, List, Minus, Plus } from "lucide-react";
+import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, Highlighter, List, Minus, Plus, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -40,6 +40,8 @@ import {
 } from "@/lib/koreader/koreader-sidecar";
 import { AnnotationsApi } from "@/lib/client/annotations-api";
 import { ReaderAnnotationsPanel } from "./reader-annotations-panel";
+import { RsvpReader } from "./rsvp-reader";
+import { useRsvp } from "./use-rsvp";
 
 interface EpubReaderProps {
   bookId: number;
@@ -112,6 +114,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
   const spineCountRef = useRef(1);
   const tocRef = useRef<NavItem[]>([]);
   const bookRef = useRef<Book | null>(null);
+  const locationRef = useRef<{ cfi: string | null; spineIndex: number }>({ cfi: null, spineIndex: 0 });
 
   const [theme, setTheme] = useState<ReaderTheme>("paper");
   const [fontSize, setFontSize] = useState(100);
@@ -173,8 +176,37 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
     }
   }, []);
 
+  const rsvp = useRsvp({
+    bookRef,
+    spineCountRef,
+    positionRef,
+    locationRef,
+    saveQueueRef,
+    restoringRef,
+    annotationsRef,
+    setAnnotations,
+    onProgress: (nextPercent, chapterTitle) => {
+      setPercent(nextPercent);
+      if (chapterTitle) setChapter(chapterTitle);
+    },
+    // Al salir de RSVP, la vista paginada vuelve a la palabra donde quedó la lectura.
+    onExit: async (target) => {
+      const rendition = renditionRef.current;
+      if (!rendition) return;
+      const restored = target.xpointer ? await displayKoreaderXPointer(rendition, target.xpointer, spineCountRef.current) : false;
+      if (!restored && target.cfi) await rendition.display(target.cfi);
+      renderVisibleAnnotations();
+    },
+  });
+  const rsvpActive = rsvp.active;
+
+  useEffect(() => {
+    if (!rsvp.active && rsvp.error) setNotice(rsvp.error);
+  }, [rsvp.active, rsvp.error]);
+
   useEffect(() => {
     let cancelled = false;
+    const renderedHighlights = renderedRef.current;
     let book: Book | null = null;
     let rendition: Rendition | null = null;
     let saveQueue: ReaderSaveQueue | null = null;
@@ -246,6 +278,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
           const calculated = activeBook.locations.percentageFromCfi(location.start.cfi);
           const nextPercent = Number.isFinite(calculated) ? calculated : Math.max(0, Math.min(1, location.start.percentage ?? 0));
           const xpointer = cfiToKoreaderXPointer(activeRendition, location.start.cfi, spineCount);
+          locationRef.current = { cfi: location.start.cfi, spineIndex: location.start.index };
           setPercent(nextPercent);
           setChapter(chapterFor(activeBook, navigation.toc, location.start.index) ?? null);
           const fallbackLocation = Math.floor(nextPercent * Math.max(0, totalLocations - 1));
@@ -331,7 +364,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
       saveQueueRef.current = null;
       rendition?.destroy();
       renditionRef.current = null;
-      renderedRef.current.clear();
+      renderedHighlights.clear();
       book?.destroy();
     };
   }, [bookId, fileName, setAnnotations, renderVisibleAnnotations]);
@@ -346,6 +379,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
   }, []);
 
   useEffect(() => {
+    if (rsvpActive) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.target instanceof HTMLElement && ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName)) return;
       if (event.key === "ArrowLeft") goPrev();
@@ -353,7 +387,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [goPrev, goNext]);
+  }, [goPrev, goNext, rsvpActive]);
 
   function changeTheme(next: ReaderTheme) {
     setTheme(next);
@@ -474,6 +508,9 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
           <Button variant="ghost" size="icon" aria-label="Increase font size" disabled={fontSize >= MAX_FONT} onClick={() => changeFont(FONT_STEP)} className="text-current">
             <Plus className="size-4" aria-hidden="true" />
           </Button>
+          <Button variant="ghost" size="icon" aria-label="RSVP mode" disabled={isLoading || rsvp.isLoading || rsvpActive} onClick={() => void rsvp.enter()} className="text-current">
+            <Zap className="size-4" aria-hidden="true" />
+          </Button>
           <Button variant="ghost" size="icon" aria-label="Add bookmark" onClick={addBookmark} className="text-current">
             <Bookmark className="size-4" aria-hidden="true" />
           </Button>
@@ -561,11 +598,43 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
               <Button variant="ghost" size="sm" className="text-current" onClick={() => setSelection(null)}>
                 Cancel
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-current"
+                onClick={() => {
+                  const start = selection.pos0;
+                  setSelection(null);
+                  void rsvp.enter({ xpointer: start, spineIndex: xpointerSpineIndex(start) });
+                }}
+              >
+                Start RSVP here
+              </Button>
               <Button size="sm" onClick={saveHighlight}>
                 Highlight
               </Button>
             </div>
           </div>
+        )}
+
+        {rsvpActive && (
+          <RsvpReader
+            className={THEME_STYLES[theme]}
+            token={rsvp.token}
+            isPlaying={rsvp.isPlaying}
+            isCompleted={rsvp.isCompleted}
+            isLoading={rsvp.isLoading}
+            prefs={rsvp.prefs}
+            percentFinished={percent}
+            chapterTitle={rsvp.chapterTitle}
+            theme={theme}
+            error={rsvp.error}
+            onTogglePlay={() => void rsvp.toggle()}
+            onJumpWords={(delta) => void rsvp.jumpWords(delta)}
+            onJumpSentence={(direction) => void rsvp.jumpSentence(direction)}
+            onPrefsChange={rsvp.updatePrefs}
+            onExit={() => void rsvp.exit()}
+          />
         )}
 
         {notice && (
