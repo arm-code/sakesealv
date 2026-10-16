@@ -2,6 +2,7 @@ import { applyAuthResponseSignals } from "@/lib/client/apply-auth-response-signa
 import { request } from "@/lib/client/api-client";
 import type { LibraryBookDetail } from "@/lib/server/application/use-cases/get-library-book-detail";
 import type { LibraryBook } from "@/lib/library/types";
+import type { Book } from "@/lib/server/domain/book";
 
 export interface BookStateChange {
   isRead?: boolean;
@@ -62,6 +63,12 @@ export const LibraryApi = {
   setState: (id: number, change: BookStateChange) => request<BookStateResult>(`/api/library/${id}/state`, json("PUT", change)),
 
   moveToTrash: (id: number) => request<{ success: true }>(`/api/library/${id}/trash`, { method: "POST" }),
+
+  listTrash: () => request<{ success: true; books: Array<Book & { progressPercent: number | null }> }>("/api/library/trash"),
+
+  restore: (id: number) => request<{ success: true }>(`/api/library/${id}/restore`, { method: "POST", body: "{}" }),
+
+  deleteTrashed: (id: number) => request<{ success: true }>(`/api/library/${id}/trash`, { method: "DELETE" }),
 
   updateMetadata: (id: number, patch: BookMetadataPatch) =>
     request<{ success: true }>(`/api/library/${id}/metadata`, json("PUT", patch)),

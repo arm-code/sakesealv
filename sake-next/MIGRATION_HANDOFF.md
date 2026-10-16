@@ -2727,6 +2727,27 @@ TODAS las rutas en 404 hasta reiniciarlo.
 
 ---
 
+## Fase 4d — Archived + Trash (COMPLETA)
+
+**`/archived` y `/trash`** (los links ya existían en el sidebar). Sin rutas nuevas de API.
+
+- `components/library/archived-view.tsx`: filtra `GET /api/library/list` por `archived_at`
+  (orden por fecha de archivado desc), tarjeta con estado/tamaño/progreso, botón **Unarchive**
+  (`PUT /state {archived:false}`), y reutiliza `LibraryDetailModal` vía `?book=ID`.
+- `components/library/trash-view.tsx`: `GET /api/library/trash`, **Restore** (`POST /[id]/restore`),
+  borrado permanente con `ConfirmDialog` (`DELETE /[id]/trash`), **Empty Trash** con confirmación
+  (borra en serie y recarga si algo falla), cuenta regresiva a la expiración (rojo ≤7 días).
+- `LibraryApi` ampliado: `listTrash`, `restore`, `deleteTrashed`.
+
+### Verificación
+`tsc` limpio; eslint solo marca `set-state-in-effect` (mismo patrón ya aceptado). En navegador real
+(`next dev` + DB temporal sembrada, sin S3): lista de archivados, Unarchive, lista de papelera con
+días restantes, Restore (toast), Empty Trash con confirmación → estado vacío. Datos y servidor
+borrados. **No probado:** borrado permanente contra S3 real (los libros sembrados no tenían objeto),
+y el modal de detalle abierto desde `/archived`.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
