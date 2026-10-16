@@ -2781,6 +2781,55 @@ Datos y servidor borrados.
 
 ---
 
+## Fase 4f — Stats + Annotations (COMPLETA)
+
+**`/stats` y `/annotations`**. Sin rutas de API nuevas.
+
+- **Stats** (`components/stats/stats-view.tsx`, `lib/stats/view.ts`, `lib/types/stats.ts`,
+  `lib/client/stats-api.ts`): `GET /api/library/list` + `GET /api/stats/reading-activity?days=365`.
+  Tarjetas resumen/highlights, heatmap anual (colores con `color-mix` sobre `--primary`, abre
+  desplazado al final), páginas por día (7/14/30), tendencia semanal, hora del día, resumen mensual
+  + tabla, distribución por formato (conic-gradient)/rating/estado y rachas. Los gráficos son CSS
+  puro (sin librería), con tooltip vía `title`.
+- **Annotations** (`components/annotations/annotations-view.tsx`, `lib/client/annotations-api.ts`):
+  búsqueda (debounce 300 ms), filtros tipo/libro/estante/color/fechas/orden **en la URL**
+  (`history.replaceState`, no `router`), "Load more" por cursor, edición de nota/color con
+  `expectedVersion` (cualquier fallo recarga la lista por posible 409), borrado con confirmación,
+  banner de indexado con Retry y sondeo de 4 s mientras reindexa, export Markdown/JSON.
+  Enlaces a libro usan `?book=ID` (la UI de Next), no `?openBookId=`.
+
+### Fuera a propósito / pendiente
+"Open in reader" lleva a `/library/[id]/read?annotationId=` pero el lector **aún no entiende
+`annotationId`** (llega con 4c-2). Las etiquetas de hora del gráfico horario se truncan en
+pantallas angostas.
+
+### Verificación
+`tsc` limpio. Navegador real (`next dev` + DB temporal con libros, historial de progreso e índice de
+anotaciones sembrados): stats completos (520 páginas, racha 6, todos los gráficos), annotations lista
+3, búsqueda `q=fear` filtra a 1 y actualiza la URL, facets pobladas. **No probado:** editar/borrar
+anotaciones y reindexar (escriben el sidecar en S3, que no estaba levantado).
+
+---
+
+## Fase 4g — Logs (COMPLETA)
+
+**`/logs`**: `components/logs/logs-view.tsx` + `lib/client/use-log-stream.ts`.
+
+- Hook genérico `useLogStream(url, limit)` sobre `EventSource` (eventos `snapshot` + `entry`,
+  backlog acotado a 500, estado Connecting/Live/Reconnecting/Disconnected). El estado va ligado a la
+  URL, así que cambiar de dispositivo descarta el buffer anterior sin `setState` síncrono en el efecto.
+- Tab **Webapp** (`/api/logs/webapp/stream`): nivel, hora, mensaje, chips de contexto (3) y
+  `<details>` con contexto/error completos. Tab **Devices**: selector (`GET /api/devices`) +
+  `/api/devices/[id]/logs/stream`. Feed con auto-scroll que se desactiva si el usuario sube.
+- Con esto **la Fase 4 base queda completa** (todas las rutas del sidebar tienen UI real).
+
+### Verificación
+`tsc` limpio. Navegador real: snapshot + entradas de la webapp en vivo ("Live", 16 entradas, contexto
+y detalles), tab Devices sin dispositivos ("No devices found"). **No probado:** logs reales de un
+dispositivo (hay que registrar uno y enviar `POST /api/devices/logs`).
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
