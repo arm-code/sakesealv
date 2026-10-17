@@ -2923,8 +2923,12 @@ reporta), aplicar candidato con un campo desmarcado (language se conservó) + po
 (publisher/ISBN/pages/rating/open_library_key guardados, portada `.jpg` servida 200). Datos y servidor borrados.
 **Bug hallado y corregido:** `request()` (`lib/client/api-client.ts`) forzaba `Content-Type: application/json`
 y rompía cualquier FormData (500 en `cover/upload`); ahora lo omite si el body es `FormData`.
-**No probado:** "From URL" de portada, `searchEnabled=false` (sin providers) en el sidebar, etiquetas
-del gráfico por hora en móvil. **Gotcha de prueba:** el body mínimo de una portada es 1 KB.
+**Verificado después (sesión "siguiente"):** "From URL" (import 200, portada nueva), Search oculto con
+`ACTIVATED_PROVIDERS=` vacío, y con SeaweedFS real: editar nota de anotación (PATCH 200, llega al sidecar
+S3), borrar anotación, reindex (202, índice consistente) y borrado permanente (desaparecen EPUB, portada
+y `.sdr` del bucket). **No probado:** etiquetas del gráfico por hora en móvil.
+**Gotcha de prueba:** el body mínimo de una portada es 1 KB; `document.querySelector('input[type=file]')`
+en `/library` agarra el input de subida de libros, no el del modal (usar `[role=dialog] input`).
 
 ---
 
