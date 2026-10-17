@@ -1,3 +1,6 @@
+import { useSyncExternalStore } from "react";
+import { Monitor, Moon, Sun } from "lucide-react";
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { MetaList, MetaRow } from "./meta-row";
 import { getDatabaseMigrationStatusNote } from "@/lib/utils/database-migration-status";
@@ -46,6 +49,45 @@ function getIssueUrl(sourceUrl: string): string {
   return `${sourceUrl.replace(/\/$/, "")}/issues/new`;
 }
 
+const THEME_OPTIONS = [
+  { value: "light", label: "Light", Icon: Sun },
+  { value: "dark", label: "Dark", Icon: Moon },
+  { value: "system", label: "System", Icon: Monitor },
+] as const;
+
+const subscribeNoop = () => () => {};
+
+function ThemeSelector() {
+  const { theme, setTheme } = useTheme();
+  // The stored theme is unknown on the server; avoid a hydration mismatch.
+  const mounted = useSyncExternalStore(subscribeNoop, () => true, () => false);
+  const active = mounted ? (theme ?? "system") : null;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4">
+      <div>
+        <p className="text-sm font-medium text-foreground">Appearance</p>
+        <p className="text-sm text-muted-foreground">Choose light, dark, or follow your system.</p>
+      </div>
+      <div className="flex gap-2" role="group" aria-label="Theme">
+        {THEME_OPTIONS.map(({ value, label, Icon }) => (
+          <Button
+            key={value}
+            type="button"
+            size="sm"
+            variant={active === value ? "default" : "outline"}
+            aria-pressed={active === value}
+            onClick={() => setTheme(value)}
+          >
+            <Icon className="size-4" aria-hidden="true" />
+            {label}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function AppPane({
   appVersion,
   databaseVersion,
@@ -86,6 +128,8 @@ export function AppPane({
           </Button>
         </div>
       </div>
+
+      <ThemeSelector />
 
       <MetaList>
         <MetaRow label="Version" value={<span className="font-mono text-xs">{appVersion}</span>} />
