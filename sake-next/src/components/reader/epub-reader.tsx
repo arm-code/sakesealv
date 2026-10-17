@@ -7,7 +7,7 @@ import type { NavItem } from "epubjs/types/navigation";
 import type Rendition from "epubjs/types/rendition";
 import type { Location } from "epubjs/types/rendition";
 import type Contents from "epubjs/types/contents";
-import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, Highlighter, List, Minus, Plus, Zap } from "lucide-react";
+import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, Highlighter, List, Minus, Plus, Settings, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -38,6 +38,24 @@ import {
   type ReaderAnnotation,
   type SidecarSnapshot,
 } from "@/lib/koreader/koreader-sidecar";
+import {
+  formatReaderFooterStatus,
+  loadReaderFooterStatusMode,
+  nextReaderFooterStatusMode,
+  readerFooterStatusModeLabel,
+  saveReaderFooterStatusMode,
+  type ReaderFooterStatusMode,
+} from "@/lib/reader/reader-footer-status";
+import {
+  DEFAULT_TAP_NAVIGATION_DELAY_MS,
+  loadReaderNavigationPreferences,
+  MAX_TAP_NAVIGATION_DELAY_MS,
+  saveReaderNavigationPreferences,
+  type ReaderNavigationPreferences,
+} from "@/lib/reader/reader-preferences";
+import { ReaderTapNavigation } from "@/lib/reader/reader-tap-navigation";
+import { bindRenditionTapNavigation } from "@/lib/reader/reader-tap-navigation-binding";
+import { startReaderWakeLock } from "@/lib/reader/reader-wake-lock";
 import { AnnotationsApi } from "@/lib/client/annotations-api";
 import { ReaderAnnotationsPanel } from "./reader-annotations-panel";
 import { RsvpReader } from "./rsvp-reader";
@@ -85,7 +103,12 @@ interface ReaderAnnotationTarget {
   xpointer: string;
 }
 
-type ReaderPanel = "contents" | "annotations" | null;
+type ReaderPanel = "contents" | "annotations" | "settings" | null;
+
+interface RsvpEntry {
+  xpointer: string;
+  spineIndex: number;
+}
 
 async function loadDeepLinkedAnnotation(bookId: number): Promise<{ annotation: ReaderAnnotationTarget | null; warning: string | null }> {
   const raw = new URLSearchParams(window.location.search).get("annotationId");
@@ -115,6 +138,9 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
   const tocRef = useRef<NavItem[]>([]);
   const bookRef = useRef<Book | null>(null);
   const locationRef = useRef<{ cfi: string | null; spineIndex: number }>({ cfi: null, spineIndex: 0 });
+  const tapNavRef = useRef<ReaderTapNavigation | null>(null);
+  // Última posición elegida (subrayado guardado) desde la que entra RSVP si no hay una explícita.
+  const rsvpEntryOverrideRef = useRef<RsvpEntry | null>(null);
 
   const [theme, setTheme] = useState<ReaderTheme>("paper");
   const [fontSize, setFontSize] = useState(100);
@@ -131,6 +157,17 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
   const [percent, setPercent] = useState(0);
   const [chapter, setChapter] = useState<string | null>(null);
   const [page, setPage] = useState<{ current: number | null; total: number }>({ current: null, total: 0 });
+  const [chapterPage, setChapterPage] = useState<{ current: number | null; total: number | null }>({ current: null, total: null });
+  const [paginationReady, setPaginationReady] = useState(false);
+  const [footerMode, setFooterMode] = useState<ReaderFooterStatusMode>("percentage");
+  const [now, setNow] = useState(() => new Date());
+  const [navPrefs, setNavPrefs] = useState<ReaderNavigationPreferences>({
+    isTapNavigationEnabled: true,
+    arePageControlsHidden: false,
+    isTapNavigationDebugEnabled: false,
+    tapNavigationDelayMs: DEFAULT_TAP_NAVIGATION_DELAY_MS,
+  });
+  const navPrefsRef = useRef(navPrefs);
   const themeRef = useRef(theme);
   const fontRef = useRef(fontSize);
 
@@ -143,7 +180,29 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
     fontRef.current = nextFont;
     setTheme(storedTheme);
     setFontSize(nextFont);
+    try {
+      setFooterMode(loadReaderFooterStatusMode(localStorage));
+      setNavPrefs(loadReaderNavigationPreferences(localStorage));
+    } catch {
+      // Preferencias solo de conveniencia.
+    }
   }, []);
+
+  // Mantiene la pantalla encendida mientras se lee (mejor esfuerzo).
+  useEffect(() => startReaderWakeLock(), []);
+
+  // El reloj del pie solo corre cuando ese modo está activo.
+  useEffect(() => {
+    if (footerMode !== "time") return;
+    const timer = window.setInterval(() => setNow(new Date()), 15_000);
+    return () => window.clearInterval(timer);
+  }, [footerMode]);
+
+  useEffect(() => {
+    navPrefsRef.current = navPrefs;
+    tapNavRef.current?.setEnabled(navPrefs.isTapNavigationEnabled);
+    tapNavRef.current?.setNavigationDelay(navPrefs.tapNavigationDelayMs);
+  }, [navPrefs]);
 
   useEffect(() => {
     themeRef.current = theme;
@@ -200,6 +259,14 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
   });
   const rsvpActive = rsvp.active;
 
+  async function enterRsvp(explicit?: RsvpEntry) {
+    tapNavRef.current?.cancel();
+    setPanel(null);
+    const entry = explicit ?? rsvpEntryOverrideRef.current ?? undefined;
+    await rsvp.enter(entry);
+    rsvpEntryOverrideRef.current = null;
+  }
+
   useEffect(() => {
     if (!rsvp.active && rsvp.error) setNotice(rsvp.error);
   }, [rsvp.active, rsvp.error]);
@@ -210,6 +277,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
     let book: Book | null = null;
     let rendition: Rendition | null = null;
     let saveQueue: ReaderSaveQueue | null = null;
+    let unbindTapNavigation: (() => void) | null = null;
 
     const handlePageHide = () => void saveQueue?.flush(true);
     const handleVisibility = () => {
@@ -247,6 +315,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
         await book.locations.generate(1200);
         const totalLocations = book.locations.length();
         if (cancelled || !viewportRef.current) return;
+        setPaginationReady(true);
 
         saveQueue = new ReaderSaveQueue(
           fileName,
@@ -281,6 +350,8 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
           locationRef.current = { cfi: location.start.cfi, spineIndex: location.start.index };
           setPercent(nextPercent);
           setChapter(chapterFor(activeBook, navigation.toc, location.start.index) ?? null);
+          setChapterPage({ current: location.start.displayed.page, total: location.start.displayed.total });
+          if (rsvpEntryOverrideRef.current && xpointer !== rsvpEntryOverrideRef.current.xpointer) rsvpEntryOverrideRef.current = null;
           const fallbackLocation = Math.floor(nextPercent * Math.max(0, totalLocations - 1));
           setPage({
             current: bookPageFromLocation(totalLocations, location.start.location >= 0 ? location.start.location : fallbackLocation),
@@ -295,6 +366,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
         });
 
         rendition.on("selected", (cfiRange: string, contents: Contents) => {
+          tapNavRef.current?.cancel();
           const draft = selectionFromCfi(contents, cfiRange, spineCount, chapterFor(activeBook, navigation.toc, contents.sectionIndex));
           setSelection(draft);
           setNoteDraft("");
@@ -302,19 +374,18 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
         });
         rendition.on("rendered", renderVisibleAnnotations);
 
-        // Zonas de toque: tercio izquierdo/derecho navegan, el centro no hace nada.
-        rendition.on("click", (event: MouseEvent) => {
-          const view = event.view as Window | null;
-          const width = view?.innerWidth ?? 0;
-          if (!width) return;
-          const x = event.clientX % width;
-          if (x < width * 0.25) {
+        // Toque en los tercios laterales: gestos y retardo configurables (ver reader-tap-navigation).
+        const tapNavigation = new ReaderTapNavigation(
+          (direction) => {
             restoringRef.current = false;
-            void activeRendition.prev();
-          } else if (x > width * 0.75) {
-            restoringRef.current = false;
-            void activeRendition.next();
-          }
+            void (direction === "previous" ? activeRendition.prev() : activeRendition.next());
+          },
+          { navigationDelayMs: navPrefsRef.current.tapNavigationDelayMs },
+        );
+        tapNavigation.setEnabled(navPrefsRef.current.isTapNavigationEnabled);
+        tapNavRef.current = tapNavigation;
+        unbindTapNavigation = bindRenditionTapNavigation(activeRendition, tapNavigation, {
+          getReaderRect: () => viewportRef.current?.getBoundingClientRect() ?? null,
         });
         rendition.on("keyup", (event: KeyboardEvent) => {
           if (event.key === "ArrowLeft" || event.key === "ArrowRight") restoringRef.current = false;
@@ -360,6 +431,8 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
       cancelled = true;
       window.removeEventListener("pagehide", handlePageHide);
       document.removeEventListener("visibilitychange", handleVisibility);
+      unbindTapNavigation?.();
+      tapNavRef.current = null;
       saveQueue?.destroy();
       saveQueueRef.current = null;
       rendition?.destroy();
@@ -388,6 +461,26 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [goPrev, goNext, rsvpActive]);
+
+  function cycleFooterStatus() {
+    const next = nextReaderFooterStatusMode(footerMode);
+    setFooterMode(next);
+    try {
+      saveReaderFooterStatusMode(localStorage, next);
+    } catch {
+      // Preferencia solo de conveniencia.
+    }
+  }
+
+  function updateNavPrefs(patch: Partial<ReaderNavigationPreferences>) {
+    const next = { ...navPrefs, ...patch };
+    setNavPrefs(next);
+    try {
+      saveReaderNavigationPreferences(localStorage, next);
+    } catch {
+      // Preferencia solo de conveniencia.
+    }
+  }
 
   function changeTheme(next: ReaderTheme) {
     setTheme(next);
@@ -421,6 +514,8 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
     };
     const annotation: ReaderAnnotation = { ...base, id: createAnnotationId(base) };
     setAnnotations([...annotationsRef.current.filter((item) => item.id !== annotation.id), annotation]);
+    const entryXPointer = annotation.pos0 ?? annotation.page;
+    rsvpEntryOverrideRef.current = { xpointer: entryXPointer, spineIndex: xpointerSpineIndex(entryXPointer) };
     queue.upsert(annotation);
     setSelection(null);
     renderVisibleAnnotations();
@@ -455,6 +550,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
     const cfi = renderedRef.current.get(annotation.id);
     if (cfi && renditionRef.current) renditionRef.current.annotations.remove(cfi, "highlight");
     renderedRef.current.delete(annotation.id);
+    if (rsvpEntryOverrideRef.current?.xpointer === (annotation.pos0 ?? annotation.page)) rsvpEntryOverrideRef.current = null;
     setAnnotations(annotationsRef.current.filter((item) => item.id !== annotation.id));
     queue?.delete(annotation.id);
     queue?.schedule(0);
@@ -470,6 +566,15 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
   }
 
   const flatToc = flattenToc(toc);
+  const footerStatus = formatReaderFooterStatus(footerMode, {
+    percentFinished: percent,
+    bookPaginationStatus: paginationReady ? "ready" : "pending",
+    bookPage: page.current,
+    bookTotalPages: page.total > 0 ? page.total : null,
+    chapterPage: chapterPage.current,
+    chapterTotalPages: chapterPage.total,
+    now,
+  });
 
   return (
     <div className={cn("flex h-dvh flex-col", THEME_STYLES[theme])}>
@@ -508,11 +613,14 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
           <Button variant="ghost" size="icon" aria-label="Increase font size" disabled={fontSize >= MAX_FONT} onClick={() => changeFont(FONT_STEP)} className="text-current">
             <Plus className="size-4" aria-hidden="true" />
           </Button>
-          <Button variant="ghost" size="icon" aria-label="RSVP mode" disabled={isLoading || rsvp.isLoading || rsvpActive} onClick={() => void rsvp.enter()} className="text-current">
+          <Button variant="ghost" size="icon" aria-label="RSVP mode" disabled={isLoading || rsvp.isLoading || rsvpActive} onClick={() => void enterRsvp()} className="text-current">
             <Zap className="size-4" aria-hidden="true" />
           </Button>
           <Button variant="ghost" size="icon" aria-label="Add bookmark" onClick={addBookmark} className="text-current">
             <Bookmark className="size-4" aria-hidden="true" />
+          </Button>
+          <Button variant="ghost" size="icon" aria-label="Reader settings" aria-expanded={panel === "settings"} onClick={() => setPanel((current) => (current === "settings" ? null : "settings"))} className="text-current">
+            <Settings className="size-4" aria-hidden="true" />
           </Button>
           <Button variant="ghost" size="icon" aria-label="Annotations" aria-expanded={panel === "annotations"} onClick={() => setPanel((current) => (current === "annotations" ? null : "annotations"))} className="text-current">
             <Highlighter className="size-4" aria-hidden="true" />
@@ -524,7 +632,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
       </header>
 
       <div className="relative flex min-h-0 flex-1">
-        <button type="button" aria-label="Previous page" onClick={goPrev} className="hidden w-12 shrink-0 items-center justify-center opacity-50 hover:opacity-100 sm:flex">
+        <button type="button" aria-label="Previous page" onClick={goPrev} className={cn("hidden w-12 shrink-0 items-center justify-center opacity-50 hover:opacity-100", !navPrefs.arePageControlsHidden && "sm:flex")}>
           <ChevronLeft className="size-6" aria-hidden="true" />
         </button>
 
@@ -538,13 +646,46 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
           )}
         </div>
 
-        <button type="button" aria-label="Next page" onClick={goNext} className="hidden w-12 shrink-0 items-center justify-center opacity-50 hover:opacity-100 sm:flex">
+        <button type="button" aria-label="Next page" onClick={goNext} className={cn("hidden w-12 shrink-0 items-center justify-center opacity-50 hover:opacity-100", !navPrefs.arePageControlsHidden && "sm:flex")}>
           <ChevronRight className="size-6" aria-hidden="true" />
         </button>
 
         {panel && (
-          <aside className="absolute inset-y-0 right-0 z-10 w-72 max-w-[85%] overflow-y-auto border-l border-current/15 bg-inherit p-3 shadow-xl" aria-label={panel === "contents" ? "Table of contents" : "Annotations"}>
-            {panel === "contents" ? (
+          <aside className={cn("absolute inset-y-0 right-0 z-10 w-72 max-w-[85%] overflow-y-auto border-l border-current/15", THEME_STYLES[theme], "p-3 shadow-xl")} aria-label={panel === "contents" ? "Table of contents" : panel === "settings" ? "Reader settings" : "Annotations"}>
+            {panel === "settings" ? (
+              <div className="flex flex-col gap-4 text-sm">
+                <label className="flex items-start justify-between gap-3">
+                  <span>
+                    <strong className="block font-medium">Tap page edges</strong>
+                    <small className="opacity-70">Tap the left or right third of the page to navigate.</small>
+                  </span>
+                  <input type="checkbox" className="mt-1" checked={navPrefs.isTapNavigationEnabled} onChange={(event) => updateNavPrefs({ isTapNavigationEnabled: event.target.checked })} />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="flex justify-between">
+                    <strong className="font-medium">Tap delay</strong>
+                    <span className="tabular-nums opacity-70">{navPrefs.tapNavigationDelayMs === 0 ? "Instant" : `${navPrefs.tapNavigationDelayMs} ms`}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={MAX_TAP_NAVIGATION_DELAY_MS}
+                    step={50}
+                    value={navPrefs.tapNavigationDelayMs}
+                    disabled={!navPrefs.isTapNavigationEnabled}
+                    onChange={(event) => updateNavPrefs({ tapNavigationDelayMs: Number(event.target.value) })}
+                  />
+                  <small className="opacity-70">Instant feels fastest. A short delay better protects double-tap word selection.</small>
+                </label>
+                <label className="flex items-start justify-between gap-3">
+                  <span>
+                    <strong className="block font-medium">Hide arrow controls</strong>
+                    <small className="opacity-70">Remove the previous/next buttons beside the page.</small>
+                  </span>
+                  <input type="checkbox" className="mt-1" checked={navPrefs.arePageControlsHidden} onChange={(event) => updateNavPrefs({ arePageControlsHidden: event.target.checked })} />
+                </label>
+              </div>
+            ) : panel === "contents" ? (
               flatToc.length === 0 ? (
                 <p className="text-sm opacity-70">This book has no table of contents.</p>
               ) : (
@@ -570,7 +711,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
         )}
 
         {selection && (
-          <div role="dialog" aria-label="Save highlight" className="absolute inset-x-3 bottom-3 z-20 mx-auto flex max-w-md flex-col gap-2 rounded-xl border border-current/20 bg-inherit p-3 shadow-xl">
+          <div role="dialog" aria-label="Save highlight" className={cn("absolute inset-x-3 bottom-3 z-20 mx-auto flex max-w-md flex-col gap-2 rounded-xl border border-current/20", THEME_STYLES[theme], "p-3 shadow-xl")}>
             <p className="line-clamp-4 text-sm">{selection.text}</p>
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="Highlight color">
               {HIGHLIGHT_COLORS.map((color) => (
@@ -605,7 +746,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
                 onClick={() => {
                   const start = selection.pos0;
                   setSelection(null);
-                  void rsvp.enter({ xpointer: start, spineIndex: xpointerSpineIndex(start) });
+                  void enterRsvp({ xpointer: start, spineIndex: xpointerSpineIndex(start) });
                 }}
               >
                 Start RSVP here
@@ -638,7 +779,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
         )}
 
         {notice && (
-          <div role="status" className="absolute left-1/2 top-3 z-20 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-lg border border-current/20 bg-inherit px-3 py-1.5 text-xs shadow-lg">
+          <div role="status" className={cn("absolute left-1/2 top-3 z-20 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-lg border border-current/20", THEME_STYLES[theme], "px-3 py-1.5 text-xs shadow-lg")}>
             <span>{notice}</span>
             <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)} className="opacity-70 hover:opacity-100">
               ×
@@ -653,10 +794,15 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
         </div>
         <div className="flex items-center justify-between gap-3 opacity-80">
           <span className="min-w-0 truncate">{chapter ?? ""}</span>
-          <span className="shrink-0 tabular-nums">
-            {page.current !== null && page.total > 0 ? `${page.current}/${page.total} · ` : ""}
-            {Math.round(percent * 100)}%
-          </span>
+          <button
+            type="button"
+            onClick={cycleFooterStatus}
+            aria-label={`Reader status: ${footerStatus}. Tap to show ${readerFooterStatusModeLabel(nextReaderFooterStatusMode(footerMode))}.`}
+            title={`Tap to show ${readerFooterStatusModeLabel(nextReaderFooterStatusMode(footerMode))}`}
+            className="shrink-0 tabular-nums hover:opacity-100"
+          >
+            {footerStatus}
+          </button>
           <span className="shrink-0" role="status">
             {saveStatus.error ? <span className="text-red-600">Not saved</span> : saveStatus.isSaving ? "Saving..." : ""}
           </span>

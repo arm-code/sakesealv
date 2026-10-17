@@ -2932,6 +2932,36 @@ en `/library` agarra el input de subida de libros, no el del modal (usar `[role=
 
 ---
 
+## Fase 4i — Pulido del lector (COMPLETA)
+
+Portado del original (`sake/src/lib/features/reader/`) a `src/lib/reader/` convirtiendo con script
+(sin cambios de lógica): `reader-wake-lock`, `reader-footer-status`, `reader-tap-navigation(-binding)`,
+`reader-preferences`. Integrado en `components/reader/epub-reader.tsx`:
+
+- **Wake lock** (`startReaderWakeLock()` en un efecto de montaje; mejor esfuerzo, se reacquiere al volver visible).
+- **Pie alternable**: botón que cicla percentage → page del libro → page del capítulo → hora; persiste
+  en `localStorage` (`readerFooterStatusMode`). Página de capítulo sale de `location.start.displayed`.
+- **Toque en bordes** con `ReaderTapNavigation` (tercios laterales, rechaza selección/doble clic/long-press/
+  elementos interactivos) en lugar del `click` simple; panel **Reader settings** (engrane): activar toque,
+  retardo 0–500 ms (def. 200) y ocultar flechas laterales. Claves `readerTapNavigationEnabled`, etc.
+- **`rsvpEntryOverride`**: guardar un subrayado fija la posición de entrada de RSVP; se limpia si la lectura
+  se mueve a otro xpointer o se borra esa anotación; "Start RSVP here" sigue siendo explícito y gana.
+- **Bug previo corregido:** el panel lateral, el diálogo de subrayado y el aviso usaban `bg-inherit`
+  (heredan de un padre transparente → texto encima del libro); ahora usan `THEME_STYLES[theme]`.
+
+**Fuera a propósito:** diagnóstico de toques (`isTapNavigationDebugEnabled`, zonas dibujadas) — la clase lo
+soporta pero no hay UI; saltar a una anotación estando en RSVP (`seekXPointer` sigue sin UI).
+
+### Verificación
+`tsc` limpio; eslint solo el patrón `set-state-in-effect` ya aceptado. Navegador real (`next dev` + DB
+temporal + SeaweedFS, EPUB de 3 capítulos): tap en el borde derecho avanza (21 %), ciclo del pie
+(21 % → 4/15 → 3/6 → hora) y persistencia, panel de ajustes (toque off → un tap ya no navega; flechas
+ocultas; persiste tras recargar), subrayado → ⚡ RSVP arranca en la palabra del subrayado.
+**No probado:** wake lock (headless no confirma el sentinel), retardo del toque en táctil real, ocultar
+el panel en móvil.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
