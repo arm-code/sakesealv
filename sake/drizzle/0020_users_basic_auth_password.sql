@@ -1,1 +1,0 @@
-ALTER TABLE `Users` ADD `basic_auth_password_hash` text;

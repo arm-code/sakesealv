@@ -4,25 +4,15 @@
 docs
 .DS_Store
 README.md
-justfile
 docker-compose*.yaml
-
+Dockerfile
+.env
+.env.*
+!.env.example
+node_modules
+.next
+tsconfig.tsbuildinfo
 koreaderPlugins/sakeUpdater.koplugin
 
-sake/.env
-sake/.env.*
-!sake/.npmrc
-sake/.DS_Store
-sake/node_modules
-sake/build
-sake/.svelte-kit
-sake/tests
-sake/README.md
-
-sake-next/.env
-sake-next/.env.*
-!sake-next/.env.example
-sake-next/node_modules
-sake-next/.next
-sake-next/.data
-sake-next/tsconfig.tsbuildinfo
+# Implementación anterior (SvelteKit), si todavía existe en el árbol de trabajo
+sake

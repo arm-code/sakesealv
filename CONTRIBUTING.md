@@ -2,17 +2,14 @@
 
 Thanks for contributing to Sake.
 
-This repository contains the Sake web app, backend, and KOReader plugin. The project is open source and licensed under `AGPL-3.0-only`, so contributions should stay compatible with open redistribution.
+This repository contains the Sake web app, its backend and the KOReader plugin. The project is open source and licensed under `AGPL-3.0-only`, so contributions should stay compatible with open redistribution.
 
 ## Repository layout
 
-This repo has a nested app structure:
-
-- `sake/` - the actual SvelteKit application
+- `src/` - the Next.js application (App Router, Next.js 16 + React 19 + TypeScript, Bun)
+- `drizzle/` - SQL migrations
 - `koreaderPlugins/` - KOReader plugin source
-- `docs/` - shared project documentation
-
-If you are changing the app, run commands from `sake/`, not from the repository root.
+- `docs/` - screenshots
 
 ## Before you start
 
@@ -27,62 +24,49 @@ For larger work, it helps to open an issue first so the approach can be aligned 
 
 ## Local setup
 
-Sake is Bun-first and uses SvelteKit + Svelte 5 with strict TypeScript.
-
-From `sake/`:
+Sake is Bun-first and uses Next.js 16 with strict TypeScript. Setup, environment variables and Docker options are documented in [README.md](./README.md).
 
 ```bash
 bun install
-```
-
-Create an env file from the example and configure your database and S3-compatible storage:
-
-```bash
-cp .env.example .env
-```
-
-Then run:
-
-```bash
+cp .env.example .env     # configure the database and S3-compatible storage
 bun run db:migrate
-bun run dev
+bun run dev              # http://localhost:3000
 ```
 
-Open `http://localhost:5173`.
-
-If you prefer Docker, the main setup options are documented in [README.md](./README.md).
+Next.js 16 differs from older versions (for example the middleware file is `proxy.ts`). Read the relevant guide in `node_modules/next/dist/docs/` before changing framework-level code.
 
 ## Useful commands
 
-Run these from `sake/`:
-
 ```bash
 bun run dev
-bun run check
-bun test
+bun run lint
+bunx tsc --noEmit
+bun run build
 bun run db:generate
 bun run db:migrate
 ```
 
-Before opening a pull request, `bun run check` should pass with zero TypeScript errors.
+Before opening a pull request, `bunx tsc --noEmit` should pass with zero errors and `bun run build` should succeed.
 
 ## Architecture expectations
 
-Please preserve the existing layering:
+Please preserve the existing layering under `src/lib/server`:
 
-- `src/lib/server/domain` - interfaces for the domain
-- `src/lib/server/application` - use-cases, ports, composition
-- `src/lib/server/infrastructure` - concrete adapters
-- `src/routes/api` - thin controllers only
+- `domain` - domain types and interfaces
+- `application` - use-cases, ports, services and `composition.ts` (wiring)
+- `infrastructure` - concrete adapters (database, S3, logging, providers)
+- `src/app/api` - thin route handlers only
 
-Routes should:
+Route handlers should:
 
-1. Parse input
-2. Validate required fields
+1. Authenticate (`requireSession()`, `requireActor()` for routes that also accept a device API key, or `requireBasicAuth()` for OPDS/WebDAV)
+2. Parse and validate input
 3. Call one use-case
 4. Map the result to an HTTP response
 
 Expected business errors should use the project `ApiResult<T>` pattern instead of throwing.
+
+UI code lives in `src/components` (by feature), talks to the API through the typed clients in `src/lib/client`, and keeps reader logic in `src/lib/reader`.
 
 ## KOReader plugin changes
 
@@ -93,11 +77,9 @@ If you touch `koreaderPlugins/`, please preserve these boundaries:
 - adapters handle KOReader/runtime access
 - UI code should stay out of engines
 
-The plugin release source of truth is the database metadata managed by the app, not a storage manifest. You need to manually update the version number in _meta.lua so it will get recongniced as a new version.
+The plugin release source of truth is the database metadata managed by the app, not a storage manifest. You need to manually update the version number in `_meta.lua` so it is recognized as a new version.
 
 ## Database and migration notes
-
-Schema and migrations live in `sake/`.
 
 - schema: `src/lib/server/infrastructure/db/schema.ts`
 - migrations: `drizzle/`
@@ -115,17 +97,13 @@ If a generated migration includes unrelated full-schema SQL, trim it back to the
 
 Please follow the existing project conventions:
 
-- use TypeScript-first, strict typing
-- avoid `any` unless there is a strong and clearly justified reason
-- prefer modern Svelte 5 patterns over legacy Svelte style
-- keep styling consistent with the existing SCSS module approach
+- TypeScript-first, strict typing; avoid `any` unless there is a strong and clearly justified reason
+- function components and hooks; styling with Tailwind and the shared UI components in `src/components/ui`
 - preserve license headers and avoid adding incompatible assets or code
 
 ## Documentation and API changes
 
-If your change affects contributor or user workflows, update the relevant docs.
-
-If you add or change API endpoints, also update the Bruno requests under `sake-bruno/` in the workspace that accompanies this repository.
+If your change affects contributor or user workflows, update the relevant docs. If you add or change API endpoints, update the API requests that accompany this repository, if you use them.
 
 ## Pull requests
 
@@ -134,36 +112,6 @@ A good pull request usually includes:
 - a clear summary of what changed
 - any relevant screenshots for UI work
 - notes about schema, env, or migration changes
-- confirmation that `bun run check` passes
-- tests where they add confidence
+- confirmation that type check and build pass
 
 Small, focused PRs are much easier to review than broad mixed changes.
-
-Please keep PRs as small as reasonably possible. If a change can be split into a few independent, reviewable steps, prefer opening several smaller PRs instead of one large one.
-
-## AI usage
-
-AI tools are allowed, but please use them responsibly.
-
-- do not make changes you do not understand
-- verify generated code before submitting it
-- test the behavior you changed instead of assuming the output is correct
-- avoid changing many unrelated things at once just because a tool suggested them
-- keep AI-assisted PRs especially small and reviewable
-- when in doubt, slow down and narrow the change before opening the PR
-- avoid AI Co-Authors since this repo is not a free ad-space
-- avoid unnecessary AI comments like 
-
-<code>
-// gets the books <br />
-repository.getBooks();
-<br />
-</code>
-<br />
-
-
-AI can help with drafting, refactoring, and boilerplate, but contributors are still responsible for the final code, architecture fit, and correctness of the change.
-
-## Need help?
-
-If you are unsure where a change belongs, open a discussion or draft PR and describe the goal before going too far down the implementation path. That is especially helpful for architecture, migration, or KOReader sync changes.
