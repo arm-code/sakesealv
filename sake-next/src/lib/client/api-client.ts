@@ -3,7 +3,8 @@ import { applyAuthResponseSignals } from "@/lib/client/apply-auth-response-signa
 export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    // Con FormData el navegador pone el Content-Type (con el boundary) por su cuenta.
+    headers: init?.body instanceof FormData ? init.headers : { "Content-Type": "application/json", ...init?.headers },
   });
   if (response.status === 204) {
     return undefined as T;

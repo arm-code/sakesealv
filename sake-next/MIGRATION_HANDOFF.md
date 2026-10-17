@@ -2904,7 +2904,7 @@ libros reales (párrafos cortos) no ocurre. El primer render del lector en dev p
 
 ---
 
-## Fase 4h — Huecos de UI de library (COMPLETA, sin verificar en navegador)
+## Fase 4h — Huecos de UI de library (COMPLETA)
 
 - **Portada** (pestaña Overview del modal): botón "Cover" (subir imagen → `POST /cover/upload`) y
   "From URL" (→ `POST /cover/import`); actualizan la tile de la lista vía `onBookPatched`.
@@ -2916,8 +2916,15 @@ libros reales (párrafos cortos) no ocurre. El primer render del lector en dev p
   providers (ante fallo de la petición lo deja visible).
 - **Stats**: en pantallas angostas el gráfico por hora muestra una etiqueta de cada 3 (`narrowLabelEvery`).
 
-`tsc` limpio; eslint solo el patrón `set-state-in-effect` ya aceptado. **No probado en navegador**
-(sin servidor/DB/S3 levantados): subida/import de portada, búsqueda y aplicación de candidatos.
+### Verificación
+`tsc` limpio. Navegador real (`next dev` + DB temporal + SeaweedFS + EPUB sembrado): subida de portada
+(se muestra en el modal), búsqueda real de candidatos (OpenLibrary; Google Books dio 429 y el diálogo lo
+reporta), aplicar candidato con un campo desmarcado (language se conservó) + portada del candidato
+(publisher/ISBN/pages/rating/open_library_key guardados, portada `.jpg` servida 200). Datos y servidor borrados.
+**Bug hallado y corregido:** `request()` (`lib/client/api-client.ts`) forzaba `Content-Type: application/json`
+y rompía cualquier FormData (500 en `cover/upload`); ahora lo omite si el body es `FormData`.
+**No probado:** "From URL" de portada, `searchEnabled=false` (sin providers) en el sidebar, etiquetas
+del gráfico por hora en móvil. **Gotcha de prueba:** el body mínimo de una portada es 1 KB.
 
 ---
 
