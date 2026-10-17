@@ -1,6 +1,7 @@
 import { getLatestKoreaderPluginUseCase } from "@/lib/server/application/composition";
 import { errorResponse } from "@/lib/server/http/api";
 import { logger, toLogError } from "@/lib/server/infrastructure/logging/logger";
+import { getPublicOrigin } from "@/lib/server/http/public-origin";
 
 export async function GET(request: Request) {
   try {
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
       return errorResponse(result.error.message, result.error.status);
     }
 
-    const origin = new URL(request.url).origin;
+    const origin = getPublicOrigin(request);
     return Response.json({
       version: result.value.version,
       fileName: result.value.fileName,
