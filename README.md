@@ -40,6 +40,8 @@ Then open <http://localhost:5173>. This starts:
 
 Data is persisted under `./.data/selfhost/libsql` and `./.data/selfhost/seaweedfs`. Defaults live in `.env.docker.selfhosted` — change the S3 credentials before exposing the stack to a network.
 
+> **Production Deployment:** For deploying on a Linux (Debian) server with Cloudflare Tunnel (e.g. custom domain), see the dedicated guide: [docs/DEPLOY_LINUX_CLOUDFLARE.md](docs/DEPLOY_LINUX_CLOUDFLARE.md).
+
 To stop it: `docker compose down`.
 
 ### Option B — Local development with Bun
