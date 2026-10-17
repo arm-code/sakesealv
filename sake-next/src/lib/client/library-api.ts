@@ -3,6 +3,8 @@ import { request } from "@/lib/client/api-client";
 import type { LibraryBookDetail } from "@/lib/server/application/use-cases/get-library-book-detail";
 import type { LibraryBook } from "@/lib/library/types";
 import type { Book } from "@/lib/server/domain/book";
+import type { MetadataCandidate, MetadataCoverCandidate } from "@/lib/server/application/ports";
+import type { ApplyMetadataFieldSelection } from "@/lib/server/application/use-cases/apply-metadata-candidate";
 
 export interface BookStateChange {
   isRead?: boolean;
@@ -74,6 +76,30 @@ export const LibraryApi = {
     request<{ success: true }>(`/api/library/${id}/metadata`, json("PUT", patch)),
 
   refetchMetadata: (id: number) => request<{ success: true }>(`/api/library/${id}/refetch-metadata`, { method: "POST" }),
+
+  searchMetadataCandidates: (bookId: number) =>
+    request<{ candidates: MetadataCandidate[]; providerErrors: Array<{ providerId: string; message: string }> }>(
+      "/api/metadata/search",
+      json("POST", { bookId }),
+    ),
+
+  applyMetadataCandidate: (
+    id: number,
+    body: { candidate: MetadataCandidate; fieldSelections: ApplyMetadataFieldSelection[]; coverChoice?: MetadataCoverCandidate | null },
+  ) =>
+    request<{
+      success: true;
+      book: { title: string; author: string | null; series: string | null; seriesIndex: number | null; language: string | null; year: number | null; cover: string | null };
+    }>(`/api/library/${id}/metadata/apply`, json("POST", body)),
+
+  uploadCover(id: number, file: File) {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ success: true; cover: string }>(`/api/library/${id}/cover/upload`, { method: "POST", body: form });
+  },
+
+  importCover: (id: number, coverUrl?: string) =>
+    request<{ success: true; cover: string }>(`/api/library/${id}/cover/import`, json("POST", coverUrl ? { coverUrl } : {})),
 
   removeDeviceDownload: (id: number, deviceId: string) =>
     request<{ success: true }>(`/api/library/${id}/downloads/${encodeURIComponent(deviceId)}`, { method: "DELETE" }),

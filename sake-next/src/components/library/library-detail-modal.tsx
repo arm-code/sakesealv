@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Archive, BookOpen, BookOpenCheck, Download, EyeOff, RefreshCw, Star, Trash2 } from "lucide-react";
+import { Archive, BookOpen, BookOpenCheck, Download, EyeOff, RefreshCw, Search, Star, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { clampProgress } from "@/lib/library/view";
 import type { LibraryBook } from "@/lib/library/types";
 import type { LibraryShelf } from "@/lib/types/library";
 import type { LibraryBookDetail } from "@/lib/server/application/use-cases/get-library-book-detail";
+import { MetadataCandidatesDialog } from "./metadata-candidates-dialog";
 import { useLibraryBookDetail } from "./use-library-book-detail";
 
 interface LibraryDetailModalProps {
@@ -153,11 +154,18 @@ export function LibraryDetailModal({ book, shelves, onClose, onBookPatched, onBo
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<MetadataFormState | null>(null);
   const [confirmTrash, setConfirmTrash] = useState(false);
+  const [candidatesOpen, setCandidatesOpen] = useState(false);
+  const [coverUrlOpen, setCoverUrlOpen] = useState(false);
+  const [coverUrl, setCoverUrl] = useState("");
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setTab("overview");
     setEditing(false);
     setForm(null);
+    setCandidatesOpen(false);
+    setCoverUrlOpen(false);
+    setCoverUrl("");
   }, [bookId]);
 
   const { loadHistory } = state;
@@ -214,15 +222,35 @@ export function LibraryDetailModal({ book, shelves, onClose, onBookPatched, onBo
               <div className="flex-1 overflow-y-auto p-5">
                 <TabsContent value="overview" className="flex flex-col gap-5">
                   <div className="flex gap-4">
-                    <div className="h-40 w-28 shrink-0 overflow-hidden rounded-md border border-border bg-muted">
-                      {book?.cover ? (
-                        // eslint-disable-next-line @next/next/no-img-element -- portada gestionada servida por /api con cookie
-                        <img src={book.cover} alt={detail.title} className="size-full object-cover" />
-                      ) : (
-                        <div className="flex size-full items-center justify-center text-muted-foreground">
-                          <BookOpen className="size-7" aria-hidden="true" />
-                        </div>
-                      )}
+                    <div className="flex w-28 shrink-0 flex-col gap-1.5">
+                      <div className="h-40 w-28 overflow-hidden rounded-md border border-border bg-muted">
+                        {book?.cover ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- portada gestionada servida por /api con cookie
+                          <img src={book.cover} alt={detail.title} className="size-full object-cover" />
+                        ) : (
+                          <div className="flex size-full items-center justify-center text-muted-foreground">
+                            <BookOpen className="size-7" aria-hidden="true" />
+                          </div>
+                        )}
+                      </div>
+                      <input
+                        ref={coverInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = "";
+                          if (file) void state.uploadCover(file);
+                        }}
+                      />
+                      <Button variant="outline" size="sm" disabled={busy} onClick={() => coverInputRef.current?.click()}>
+                        <Upload className="size-3.5" aria-hidden="true" />
+                        {state.pending === "cover" ? "Saving..." : "Cover"}
+                      </Button>
+                      <Button variant="ghost" size="sm" disabled={busy} onClick={() => setCoverUrlOpen((open) => !open)}>
+                        From URL
+                      </Button>
                     </div>
                     <dl className="min-w-0 flex-1">
                       <InfoRow label="Status" value={detail.isRead ? "Read" : percent > 0 ? `Reading (${Math.round(percent)}%)` : "Unread"} />
@@ -233,6 +261,31 @@ export function LibraryDetailModal({ book, shelves, onClose, onBookPatched, onBo
                       <InfoRow label="Size" value={formatFileSize(book?.filesize)} />
                     </dl>
                   </div>
+
+                  {coverUrlOpen && (
+                    <form
+                      className="flex gap-2"
+                      onSubmit={async (event) => {
+                        event.preventDefault();
+                        if (await state.importCover(coverUrl.trim())) {
+                          setCoverUrlOpen(false);
+                          setCoverUrl("");
+                        }
+                      }}
+                    >
+                      <Input
+                        type="url"
+                        required
+                        value={coverUrl}
+                        onChange={(event) => setCoverUrl(event.target.value)}
+                        placeholder="https://example.com/cover.jpg"
+                        aria-label="Cover image URL"
+                      />
+                      <Button type="submit" size="sm" disabled={busy || !coverUrl.trim()}>
+                        Import
+                      </Button>
+                    </form>
+                  )}
 
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-sm text-muted-foreground">Your rating</span>
@@ -353,6 +406,10 @@ export function LibraryDetailModal({ book, shelves, onClose, onBookPatched, onBo
                       <RefreshCw className="size-4" aria-hidden="true" />
                       {state.pending === "refetch" ? "Refetching..." : "Refetch"}
                     </Button>
+                    <Button variant="outline" size="sm" disabled={busy} onClick={() => setCandidatesOpen(true)}>
+                      <Search className="size-4" aria-hidden="true" />
+                      Find metadata
+                    </Button>
                     {editing ? (
                       <>
                         <Button variant="outline" size="sm" disabled={busy} onClick={() => setEditing(false)}>
@@ -444,6 +501,14 @@ export function LibraryDetailModal({ book, shelves, onClose, onBookPatched, onBo
           )}
         </DialogContent>
       </Dialog>
+
+      <MetadataCandidatesDialog
+        bookId={bookId}
+        open={candidatesOpen}
+        busy={state.pending === "apply"}
+        onOpenChange={setCandidatesOpen}
+        onApply={state.applyCandidate}
+      />
 
       <ConfirmDialog
         open={confirmTrash}

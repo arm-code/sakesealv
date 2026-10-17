@@ -9,6 +9,7 @@ import { SettingsModal } from "@/components/sidebar/settings/settings-modal";
 import { useZlibraryAuth } from "@/components/sidebar/settings/use-zlibrary-auth";
 import { ZLibraryAuthModal } from "@/components/zlibrary-auth-modal";
 import { AccountApi } from "@/lib/client/account-api";
+import { request } from "@/lib/client/api-client";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
@@ -45,6 +46,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [zlibModalOpen, setZlibModalOpen] = useState(false);
+  const [searchEnabled, setSearchEnabled] = useState(true);
   const zlibraryAuth = useZlibraryAuth();
 
   // Gate de sesión: sin cookie válida volvemos al login (las rutas API ya
@@ -54,6 +56,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     AccountApi.getCurrentUser()
       .then(() => {
         if (!cancelled) setSessionChecked(true);
+        // Sin providers activos ocultamos Search; ante un fallo lo dejamos visible.
+        return request<{ providers: string[] }>("/api/search/providers")
+          .then((result) => {
+            if (!cancelled) setSearchEnabled(result.providers.length > 0);
+          })
+          .catch(() => undefined);
       })
       .catch(() => {
         if (!cancelled) router.replace("/");
@@ -83,6 +91,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Sidebar
           collapsed={collapsed}
           mobileOpen={mobileOpen}
+          searchEnabled={searchEnabled}
           onToggleCollapsed={toggleCollapsed}
           onCloseMobile={() => setMobileOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}

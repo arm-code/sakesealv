@@ -34,15 +34,15 @@ function Tile({ label, value, sub, tone }: { label: string; value: React.ReactNo
   );
 }
 
-function BarChart({ items, max, className }: { items: Array<{ key: string; label: string; value: number; tip: string }>; max: number; className?: string }) {
+function BarChart({ items, max, className, narrowLabelEvery = 1 }: { items: Array<{ key: string; label: string; value: number; tip: string }>; max: number; className?: string; narrowLabelEvery?: number }) {
   return (
     <div className={cn("flex h-40 items-end gap-1", className)}>
-      {items.map((item) => (
+      {items.map((item, index) => (
         <div key={item.key} title={item.tip} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
           <div className="flex w-full flex-1 items-end">
             <div className="w-full rounded-t bg-primary" style={{ height: `${(item.value / max) * 100}%` }} />
           </div>
-          <span className="w-full truncate text-center text-[0.6rem] text-muted-foreground">{item.label}</span>
+          <span className={cn("w-full text-center text-[0.6rem] text-muted-foreground", index % narrowLabelEvery !== 0 && "invisible sm:visible")}>{item.label}</span>
         </div>
       ))}
     </div>
@@ -211,7 +211,7 @@ export function StatsView() {
           <BarChart max={view.maxWeeklyPages} items={view.recentWeekly.map((item) => ({ key: item.weekStart, label: item.week, value: item.pages, tip: `${item.week}: ${plural(item.pages, "page")}` }))} />
         </Card>
         <Card title="Reading by Time of Day">
-          <BarChart max={view.maxHourlyPages} items={activity.hourly.map((item) => ({ key: String(item.hour), label: String(item.hour), value: item.pages, tip: `${item.label}: ${plural(item.pages, "page")}` }))} />
+          <BarChart narrowLabelEvery={3} max={view.maxHourlyPages} items={activity.hourly.map((item) => ({ key: String(item.hour), label: String(item.hour), value: item.pages, tip: `${item.label}: ${plural(item.pages, "page")}` }))} />
         </Card>
       </div>
 

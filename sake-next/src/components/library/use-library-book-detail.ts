@@ -160,6 +160,37 @@ export function useLibraryBookDetail({ bookId, onBookPatched, onBookRemoved }: U
     }, "Failed to refetch metadata");
   }
 
+  async function changeCover(action: () => Promise<{ cover: string }>): Promise<boolean> {
+    if (bookId === null) return false;
+    return run("cover", async () => {
+      const { cover } = await action();
+      onBookPatched(bookId, { cover });
+      toast.success("Cover updated");
+    }, "Failed to update cover");
+  }
+
+  const uploadCover = (file: File) => changeCover(() => LibraryApi.uploadCover(bookId as number, file));
+  const importCover = (url: string) => changeCover(() => LibraryApi.importCover(bookId as number, url || undefined));
+
+  /** Aplica un candidato de metadata y refresca detalle + fila de la lista. */
+  async function applyCandidate(body: Parameters<typeof LibraryApi.applyMetadataCandidate>[1]): Promise<boolean> {
+    if (bookId === null) return false;
+    return run("apply", async () => {
+      const { book } = await LibraryApi.applyMetadataCandidate(bookId, body);
+      await loadDetail(bookId);
+      onBookPatched(bookId, {
+        cover: book.cover,
+        title: book.title,
+        author: book.author,
+        series: book.series,
+        series_index: book.seriesIndex,
+        language: book.language,
+        year: book.year,
+      });
+      toast.success("Metadata applied");
+    }, "Failed to apply metadata");
+  }
+
   async function removeDeviceDownload(deviceId: string) {
     if (bookId === null) return;
     await run(`device:${deviceId}`, async () => {
@@ -191,6 +222,9 @@ export function useLibraryBookDetail({ bookId, onBookPatched, onBookRemoved }: U
     moveToTrash,
     saveMetadata,
     refetchMetadata,
+    uploadCover,
+    importCover,
+    applyCandidate,
     removeDeviceDownload,
     resetDownloads,
   };

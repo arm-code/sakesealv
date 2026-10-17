@@ -2904,6 +2904,23 @@ libros reales (párrafos cortos) no ocurre. El primer render del lector en dev p
 
 ---
 
+## Fase 4h — Huecos de UI de library (COMPLETA, sin verificar en navegador)
+
+- **Portada** (pestaña Overview del modal): botón "Cover" (subir imagen → `POST /cover/upload`) y
+  "From URL" (→ `POST /cover/import`); actualizan la tile de la lista vía `onBookPatched`.
+- **Aplicar candidato** (pestaña Metadata → "Find metadata"): `metadata-candidates-dialog.tsx`
+  busca con `POST /api/metadata/search {bookId}`, lista candidatos, checkboxes por campo (todos
+  marcados por defecto; `externalRating` envía también `externalRatingCount`) y selector de portada,
+  luego `POST /api/library/[id]/metadata/apply`.
+- **Sidebar**: nueva `GET /api/search/providers`; el layout (client) oculta "Search" si no hay
+  providers (ante fallo de la petición lo deja visible).
+- **Stats**: en pantallas angostas el gráfico por hora muestra una etiqueta de cada 3 (`narrowLabelEvery`).
+
+`tsc` limpio; eslint solo el patrón `set-state-in-effect` ya aceptado. **No probado en navegador**
+(sin servidor/DB/S3 levantados): subida/import de portada, búsqueda y aplicación de candidatos.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
