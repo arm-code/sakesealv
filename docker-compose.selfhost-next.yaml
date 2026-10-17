@@ -1,5 +1,5 @@
 # Stack self-host de sake-next (Next.js). Misma infraestructura que docker-compose.selfhost.yaml
-# (SeaweedFS + libSQL en archivo); usa el mismo env: ./sake/.env.docker.selfhosted
+# (SeaweedFS + libSQL en archivo); usa el mismo env: ./sake-next/.env.docker.selfhosted
 #   docker compose -f docker-compose.selfhost-next.yaml up --build
 services:
   sake-next:
@@ -14,7 +14,7 @@ services:
     ports:
       - "5173:3000"
     env_file:
-      - ./sake/.env.docker.selfhosted
+      - ./sake-next/.env.docker.selfhosted
     volumes:
       - ./.data/selfhost/libsql:/data
       - ./koreaderPlugins/sake.koplugin:/app/koreaderPlugins/sake.koplugin:ro
@@ -32,7 +32,7 @@ services:
     image: sake-next-migrator
     container_name: sake-next-selfhost-migrator
     env_file:
-      - ./sake/.env.docker.selfhosted
+      - ./sake-next/.env.docker.selfhosted
     volumes:
       - ./.data/selfhost/libsql:/data
     restart: "no"
@@ -41,7 +41,7 @@ services:
     image: chrislusf/seaweedfs:4.17
     container_name: sake-seaweedfs
     env_file:
-      - ./sake/.env.docker.selfhosted
+      - ./sake-next/.env.docker.selfhosted
     entrypoint:
       - /bin/sh
       - -ec
@@ -79,7 +79,7 @@ services:
     image: amazon/aws-cli:2.34.7
     container_name: sake-seaweedfs-init
     env_file:
-      - ./sake/.env.docker.selfhosted
+      - ./sake-next/.env.docker.selfhosted
     depends_on:
       seaweedfs:
         condition: service_started
