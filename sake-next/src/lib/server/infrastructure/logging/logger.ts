@@ -68,10 +68,14 @@ export const logger: Logger = pino(
   },
   pino.multistream([
     {
-      stream: pino.transport({
-        target: "pino-pretty",
-        options: { colorize: true, translateTime: "SYS:standard", ignore: "pid,hostname" },
-      }),
+      // En producción (imagen standalone) JSON a stdout: pino-pretty es una dependencia de desarrollo.
+      stream:
+        process.env.NODE_ENV === "production"
+          ? process.stdout
+          : pino.transport({
+              target: "pino-pretty",
+              options: { colorize: true, translateTime: "SYS:standard", ignore: "pid,hostname" },
+            }),
     },
     { stream: webappLogFeed },
   ]),

@@ -18,3 +18,11 @@ sake/build
 sake/.svelte-kit
 sake/tests
 sake/README.md
+
+sake-next/.env
+sake-next/.env.*
+!sake-next/.env.example
+sake-next/node_modules
+sake-next/.next
+sake-next/.data
+sake-next/tsconfig.tsbuildinfo

@@ -2962,6 +2962,31 @@ el panel en móvil.
 
 ---
 
+## Fase 5 — Build de producción y despliegue (COMPLETA)
+
+- `next.config.ts`: `output: "standalone"`. `bun run build` pasa (necesita red por Google Fonts).
+- `logger.ts`: en producción escribe JSON a stdout (antes siempre `pino-pretty`, que es devDependency).
+- `sake-next/Dockerfile` (contexto = **raíz del repo**: `docker build -f sake-next/Dockerfile .`), targets:
+  `runtime` (node:22-slim, `node server.js`, ~460 MB, incluye `koreaderPlugins/sake.koplugin` y
+  `KOREADER_PLUGIN_DIR`) y `migrator` (bun + `drizzle-kit migrate`, mismo patrón que el `sake-migrator` original).
+  Build args `PUBLIC_WEBAPP_VERSION/GIT_TAG/COMMIT_SHA/RELEASED_AT` (se leen en runtime en `/api/app/version`).
+- `docker-compose.selfhost-next.yaml`: mismo stack que `docker-compose.selfhost.yaml` (SeaweedFS + libSQL en
+  `./.data/selfhost/libsql`, env `./sake/.env.docker.selfhosted`) con `sake-next` + `sake-next-migrator`
+  en el puerto 5173. `.dockerignore` excluye `.env*`, `node_modules`, `.next`, `.data` de `sake-next`.
+  Uso: `docker compose -f docker-compose.selfhost-next.yaml up --build`.
+- **Nota:** `ACTIVATED_PROVIDERS` en el env compartido usa los tokens del original (`zlib,anna,openlib,gutenberg`);
+  el parser de sake-next los normaliza (verificado en dev solo con `openlibrary`).
+- **BODY_SIZE_LIMIT** (SvelteKit) no aplica: los Route Handlers de Next no limitan el body de uploads.
+
+### Verificación
+Imagen real construida; migrator aplicó las 26 migraciones (`0025_zlibrary_mirror_settings`); contenedor `runtime`
+contra el SeaweedFS local: sync del plugin al arrancar (jobs de `instrumentation.ts`), `/api/app/version`
+(`up_to_date`), bootstrap/login, `/` 200, subida de EPUB, `content` 200 y borrado permanente. `docker compose
+config` válido. **No probado:** `docker compose up` completo del archivo nuevo (usaría el puerto 5173 y los
+volúmenes `.data/selfhost`), un build en CI, ni las rutas con `ACTIVATED_PROVIDERS` real de Z-Library.
+
+---
+
 ## Cómo continuar en una sesión nueva
 
 Pega esto al iniciar:
