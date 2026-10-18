@@ -1,5 +1,6 @@
 import { Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { KoreaderSetupGuide } from "./koreader-setup-guide";
 import type {
   KoreaderPluginRelease,
   KoreaderPluginReleasesResponse,
@@ -77,6 +78,8 @@ export function PluginPane({
           Refresh
         </Button>
       </div>
+
+      <KoreaderSetupGuide />
 
       {releasesError ? (
         <p className="text-sm text-destructive">{releasesError}</p>
