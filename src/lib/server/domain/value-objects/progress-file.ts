@@ -75,5 +75,10 @@ export function buildProgressLookupTitleCandidates(targetTitle: string): string[
     candidates.push(legacy);
   }
 
+  const underscored = raw.replace(/\s+/g, "_");
+  if (!candidates.includes(underscored)) {
+    candidates.push(underscored);
+  }
+
   return candidates;
 }
