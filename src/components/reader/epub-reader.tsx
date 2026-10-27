@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import type Book from "epubjs/types/book";
 import type { NavItem } from "epubjs/types/navigation";
@@ -93,6 +93,25 @@ function writeStored(key: string, value: string): void {
   } catch {
     // Preferencia solo de conveniencia.
   }
+}
+
+// Tooltip ligero (hover y foco de teclado) para los iconos de la cabecera; `align="end"` evita que se salga por la derecha.
+function HeaderTip({ label, hint, align = "center", children }: { label: string; hint?: string; align?: "center" | "end"; children: ReactNode }) {
+  return (
+    <span className="group relative inline-flex">
+      {children}
+      <span
+        role="presentation"
+        className={cn(
+          "pointer-events-none absolute top-full z-30 mt-2 w-max max-w-56 rounded-md border border-white/20 bg-neutral-900 px-2.5 py-1.5 text-left text-xs text-white opacity-0 shadow-lg transition-opacity delay-300 group-hover:opacity-100 group-focus-within:opacity-100",
+          align === "end" ? "right-0" : "left-1/2 -translate-x-1/2",
+        )}
+      >
+        <strong className="block font-medium">{label}</strong>
+        {hint && <span className="block opacity-80">{hint}</span>}
+      </span>
+    </span>
+  );
 }
 
 function flattenToc(items: NavItem[], depth = 0): Array<{ item: NavItem; depth: number }> {
@@ -589,45 +608,60 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h1>
         <div className="flex items-center gap-1" role="group" aria-label="Appearance">
           {READER_THEMES.map((option) => (
-            <button
-              key={option}
-              type="button"
-              aria-label={`${option} theme`}
-              aria-pressed={theme === option}
-              onClick={() => changeTheme(option)}
-              className={cn(
-                "size-5 rounded-full border border-current/40",
-                option === "paper" && "bg-[#fbfaf7]",
-                option === "night" && "bg-[#111318]",
-                option === "sepia" && "bg-[#ead8b5]",
-                theme === option && "ring-2 ring-current ring-offset-1",
-              )}
-            />
+            <HeaderTip key={option} label={`${option[0].toUpperCase()}${option.slice(1)} theme`} hint="Change the page colors.">
+              <button
+                type="button"
+                aria-label={`${option} theme`}
+                aria-pressed={theme === option}
+                onClick={() => changeTheme(option)}
+                className={cn(
+                  "size-5 rounded-full border border-current/40",
+                  option === "paper" && "bg-[#fbfaf7]",
+                  option === "night" && "bg-[#111318]",
+                  option === "sepia" && "bg-[#ead8b5]",
+                  theme === option && "ring-2 ring-current ring-offset-1",
+                )}
+              />
+            </HeaderTip>
           ))}
-          <Button variant="ghost" size="icon" aria-label="Decrease font size" disabled={fontSize <= MIN_FONT} onClick={() => changeFont(-FONT_STEP)} className="text-current">
-            <Minus className="size-4" aria-hidden="true" />
-          </Button>
+          <HeaderTip label="Smaller text" hint="Decrease the font size.">
+            <Button variant="ghost" size="icon" aria-label="Decrease font size" disabled={fontSize <= MIN_FONT} onClick={() => changeFont(-FONT_STEP)} className="text-current">
+              <Minus className="size-4" aria-hidden="true" />
+            </Button>
+          </HeaderTip>
           <span className="w-10 text-center text-xs tabular-nums" aria-live="polite">
             {fontSize}%
           </span>
-          <Button variant="ghost" size="icon" aria-label="Increase font size" disabled={fontSize >= MAX_FONT} onClick={() => changeFont(FONT_STEP)} className="text-current">
-            <Plus className="size-4" aria-hidden="true" />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="RSVP mode" disabled={isLoading || rsvp.isLoading || rsvpActive} onClick={() => void enterRsvp()} className="text-current">
-            <Zap className="size-4" aria-hidden="true" />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Add bookmark" onClick={addBookmark} className="text-current">
-            <Bookmark className="size-4" aria-hidden="true" />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Reader settings" aria-expanded={panel === "settings"} onClick={() => setPanel((current) => (current === "settings" ? null : "settings"))} className="text-current">
-            <Settings className="size-4" aria-hidden="true" />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Annotations" aria-expanded={panel === "annotations"} onClick={() => setPanel((current) => (current === "annotations" ? null : "annotations"))} className="text-current">
-            <Highlighter className="size-4" aria-hidden="true" />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Table of contents" aria-expanded={panel === "contents"} onClick={() => setPanel((current) => (current === "contents" ? null : "contents"))} className="text-current">
-            <List className="size-4" aria-hidden="true" />
-          </Button>
+          <HeaderTip label="Larger text" hint="Increase the font size.">
+            <Button variant="ghost" size="icon" aria-label="Increase font size" disabled={fontSize >= MAX_FONT} onClick={() => changeFont(FONT_STEP)} className="text-current">
+              <Plus className="size-4" aria-hidden="true" />
+            </Button>
+          </HeaderTip>
+          <HeaderTip label="RSVP speed reading" hint="Shows one word at a time at a steady pace.">
+            <Button variant="ghost" size="icon" aria-label="RSVP mode" disabled={isLoading || rsvp.isLoading || rsvpActive} onClick={() => void enterRsvp()} className="text-current">
+              <Zap className="size-4" aria-hidden="true" />
+            </Button>
+          </HeaderTip>
+          <HeaderTip label="Add bookmark" hint="Save the current page to come back later.">
+            <Button variant="ghost" size="icon" aria-label="Add bookmark" onClick={addBookmark} className="text-current">
+              <Bookmark className="size-4" aria-hidden="true" />
+            </Button>
+          </HeaderTip>
+          <HeaderTip label="Reader settings" hint="Page tap navigation and arrow controls." align="end">
+            <Button variant="ghost" size="icon" aria-label="Reader settings" aria-expanded={panel === "settings"} onClick={() => setPanel((current) => (current === "settings" ? null : "settings"))} className="text-current">
+              <Settings className="size-4" aria-hidden="true" />
+            </Button>
+          </HeaderTip>
+          <HeaderTip label="Highlights & bookmarks" hint="Review your notes, highlights and bookmarks." align="end">
+            <Button variant="ghost" size="icon" aria-label="Annotations" aria-expanded={panel === "annotations"} onClick={() => setPanel((current) => (current === "annotations" ? null : "annotations"))} className="text-current">
+              <Highlighter className="size-4" aria-hidden="true" />
+            </Button>
+          </HeaderTip>
+          <HeaderTip label="Table of contents" hint="Jump to a chapter." align="end">
+            <Button variant="ghost" size="icon" aria-label="Table of contents" aria-expanded={panel === "contents"} onClick={() => setPanel((current) => (current === "contents" ? null : "contents"))} className="text-current">
+              <List className="size-4" aria-hidden="true" />
+            </Button>
+          </HeaderTip>
         </div>
       </header>
 
