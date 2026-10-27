@@ -8,11 +8,11 @@ import {
 } from "@/lib/server/application/composition";
 import { createChildLogger, toLogError } from "@/lib/server/infrastructure/logging/logger";
 
-// Jobs de fondo del proceso web (Fase 3y). Sustituyen a los triggers de
-// `hooks.server.ts` del original, que colgaban de la primera request: aquí
-// arrancan una sola vez desde `instrumentation.ts` y el purge usa un timer.
-// Hardcover sigue bloqueado y no tiene job; la cola de descargas (Pieza D)
-// tampoco existe todavía.
+// Jobs de fondo del proceso web. Sustituyen a los triggers de `hooks.server.ts`
+// del original, que colgaban de la primera request: aquí arrancan una sola
+// vez desde `instrumentation.ts` y el purge usa un timer. Incluye también la
+// recuperación de la cola de descargas, la reconciliación de Hardcover (si hay
+// token) y la del índice de anotaciones.
 
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const STARTED_KEY = Symbol.for("sake.backgroundJobs.started");

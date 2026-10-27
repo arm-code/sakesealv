@@ -1,37 +1,8 @@
-// Composition root — Fase 3a..3j: auth local, shelves, Account/Devices (API
-// keys, logout-all, basic auth password, devices), el Plugin pane, los
-// mirrors de Z-Library, el App pane, el núcleo de library/books (listar/ver
-// detalle/leer EPUB/portada/asignar a estantes), progreso/rating (ratings,
-// progress-history, rating, state, autosave del lector web), papelera
-// (listar/mover/restaurar/borrar permanente + purga de expirados), portadas
-// upload/import (subir una imagen propia o importar desde una URL externa),
-// y el dominio completo de metadata providers (3j-3m: núcleo — los 4
-// proveedores + agregador/ranking + búsqueda de candidatos —, edición
-// manual, refetch automático, y aplicar candidato) están wireados. El
-// sync de dispositivos KOReader (3r: pairing device-key, progress GET/PUT/
-// new/confirm, library/new, confirmDownload, header Sake-Version) también,
-// vía auth dual (sesión o API key — auth/require-actor.ts). Siguen fuera
-// export/devices-version/devices-logs/OPDS/DAV. `purgeExpiredTrashUseCase` está wireado
-// pero sin ruta ni cron — en el original se dispara desde hooks.server.ts
-// por intervalo, mismo hueco de arquitectura que el sync del plugin
-// (3c)/Hardcover. `applyMetadataCandidateUseCase` (3m) se invoca desde una
-// ruta HTTP nueva inventada (POST /api/library/[id]/metadata/apply) — el
-// use-case original estaba huérfano, sin ruta en sake/. Tampoco se tocó
-// "search providers" (Anna's Archive/Gutenberg/OpenLibrary-search/
-// Z-Library-search) — es un subsistema aparte para *buscar libros para
-// descargar*, pertenece a la adquisición Z-Library real, no a metadata
-// providers. La adquisición Z-Library real está cerrada por completo
-// (A/3n login, B/3o búsqueda, C/3p descarga/importación directa, E/3q
-// `/api/library/[id]` — GET/PUT/DELETE sobre el archivo crudo por
-// storage key, el upload manual real) —
-// `downloadBookUseCase`/`downloadSearchBookUseCase`/
-// `getLibraryFileUseCase`/`putLibraryFileUseCase`/`deleteLibraryFileUseCase`.
-// Solo queda fuera del troceo **D** (cola de descargas en background,
-// choca con el hueco de arquitectura de jobs de fondo). Cuando se migren
-// más features, extender este archivo (igual que el original
-// `composition.ts` barrel, pero sin arrastrar subsistemas que aún no
-// existen en sake-next: cola de descargas, annotations, sync de
-// dispositivos...).
+// Composition root: instancia repositorios, servicios y casos de uso, y los
+// exporta para que las rutas (src/app/api) y los jobs de fondo los consuman.
+// Al agregar una feature, registra aquí su use-case. Las referencias "Fase 3x"
+// de los comentarios son del historial de migración desde SvelteKit
+// (ver MIGRATION_HANDOFF.md); todas las fases están portadas.
 import { UserRepository } from "@/lib/server/infrastructure/repositories/user-repository";
 import { UserSessionRepository } from "@/lib/server/infrastructure/repositories/user-session-repository";
 import { UserApiKeyRepository } from "@/lib/server/infrastructure/repositories/user-api-key-repository";
@@ -313,12 +284,10 @@ export const importLibraryBookCoverUseCase = new ImportLibraryBookCoverUseCase(b
 
 // Fase 3j: los 4 proveedores de metadata (Google Books/OpenLibrary/ISBNdb/
 // Hardcover-metadata) + el agregador/ranking + la búsqueda de candidatos.
-// Deliberadamente NO incluye "search providers" (Anna's Archive/Gutenberg/
-// OpenLibrary-search/Z-Library-search, ~1,502 líneas) — ese es un subsistema
-// aparte para *encontrar libros para descargar*, pertenece a la mini-fase de
-// adquisición, no a esta. Tampoco incluye ApplyMetadataCandidateUseCase
-// (huérfano en el original, decisión pendiente para 3m) ni
-// RefetchLibraryBookMetadataUseCase/UpdateLibraryBookMetadataUseCase (3l/3k).
+// No incluye los "search providers" (Anna's Archive/Gutenberg/OpenLibrary-
+// search/Z-Library-search): son otro subsistema, para *encontrar libros para
+// descargar*, y se cablean más abajo. Apply/Refetch/UpdateMetadata se
+// registran en 3k-3m.
 export const activatedMetadataProviders = createMetadataProviders(getActivatedMetadataProviders(), {
   googleBooksApiKey: process.env.GOOGLE_BOOKS_API_KEY,
   isbnDbApiKey: process.env.ISBNDB_API_KEY,
@@ -393,11 +362,9 @@ export const downloadBookUseCase = new DownloadBookUseCase(
 export const downloadSearchBookUseCase = new DownloadSearchBookUseCase(allSearchProviderInstances);
 
 // Pieza E del troceo de adquisición Z-Library real — `/api/library/[title]`
-// (3p dejó el GET/PUT/DELETE de esta ruta deliberadamente fuera). En el
-// frontend real, PUT es el upload manual por drag&drop
-// (`libraryUploadController.svelte.ts`) — nunca pasa `sourceImport`; el
-// único consumidor que sí lo puebla es `DownloadQueue` (pieza D, la cola de
-// descargas en background, todavía sin portar).
+// (GET/PUT/DELETE sobre el archivo crudo). PUT es el upload manual por
+// drag&drop del frontend y nunca pasa `sourceImport`; el único consumidor
+// que sí lo puebla es `DownloadQueue` (pieza D, la cola de descargas).
 export const getLibraryFileUseCase = new GetLibraryFileUseCase(storage);
 export const putLibraryFileUseCase = new PutLibraryFileUseCase(storage, bookRepository, {
   storeFromBuffer: (input) => storeManagedBookCoverFromBuffer(storage, input),

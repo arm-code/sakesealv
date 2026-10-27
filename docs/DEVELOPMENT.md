@@ -2,6 +2,8 @@
 
 Guía práctica para quien se incorpora al proyecto: cómo levantar el entorno, ver la base de datos y recuperar el acceso si olvidas el usuario o la contraseña.
 
+Si es tu primer día, lee antes la [arquitectura](ARCHITECTURE.md): explica qué piezas tiene Sake y cómo se conectan.
+
 Para la instalación general y las variables de entorno, ver el [README](../README.md). Para las convenciones de código y de PR, ver [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## 1. Levantar el entorno

@@ -179,6 +179,8 @@ bun run db:migrate
 bun run db:studio
 ```
 
+New to the project? Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (diagrams, components, flows and how everything starts up) and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (local setup and database).
+
 ### Layout
 
 ```
