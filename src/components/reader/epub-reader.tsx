@@ -7,7 +7,7 @@ import type { NavItem } from "epubjs/types/navigation";
 import type Rendition from "epubjs/types/rendition";
 import type { Location } from "epubjs/types/rendition";
 import type Contents from "epubjs/types/contents";
-import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, Highlighter, List, Minus, Plus, Settings, Zap } from "lucide-react";
+import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, Highlighter, List, Minus, Plus, Settings, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -481,6 +481,15 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [goPrev, goNext, rsvpActive]);
 
+  useEffect(() => {
+    if (!panel) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setPanel(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [panel]);
+
   function cycleFooterStatus() {
     const next = nextReaderFooterStatusMode(footerMode);
     setFooterMode(next);
@@ -584,6 +593,7 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
     if (!opened) setNotice("This annotation could not be opened in the web reader; your current position was kept.");
   }
 
+  const panelTitle = panel === "contents" ? "Table of contents" : panel === "settings" ? "Reader settings" : "Annotations";
   const flatToc = flattenToc(toc);
   const footerStatus = formatReaderFooterStatus(footerMode, {
     percentFinished: percent,
@@ -685,7 +695,17 @@ export function EpubReader({ bookId, fileName, title }: EpubReaderProps) {
         </button>
 
         {panel && (
-          <aside className={cn("absolute inset-y-0 right-0 z-10 w-72 max-w-[85%] overflow-y-auto border-l border-current/15", THEME_STYLES[theme], "p-3 shadow-xl")} aria-label={panel === "contents" ? "Table of contents" : panel === "settings" ? "Reader settings" : "Annotations"}>
+          <div aria-hidden="true" onClick={() => setPanel(null)} className="absolute inset-0 z-[9] bg-black/20" />
+        )}
+
+        {panel && (
+          <aside className={cn("absolute inset-y-0 right-0 z-10 w-72 max-w-[85%] overflow-y-auto border-l border-current/15", THEME_STYLES[theme], "p-3 shadow-xl")} aria-label={panelTitle}>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="text-sm font-medium">{panelTitle}</h2>
+              <Button variant="ghost" size="icon" aria-label="Close panel" onClick={() => setPanel(null)} className="text-current">
+                <X className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
             {panel === "settings" ? (
               <div className="flex flex-col gap-4 text-sm">
                 <label className="flex items-start justify-between gap-3">
