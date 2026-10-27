@@ -95,7 +95,7 @@ function writeStored(key: string, value: string): void {
   }
 }
 
-// Tooltip ligero (hover y foco de teclado) para los iconos de la cabecera; `align="end"` evita que se salga por la derecha.
+// Tooltip ligero (hover y foco de teclado, no foco por clic) para los iconos de la cabecera; `align="end"` evita que se salga por la derecha.
 function HeaderTip({ label, hint, align = "center", children }: { label: string; hint?: string; align?: "center" | "end"; children: ReactNode }) {
   return (
     <span className="group relative inline-flex">
@@ -103,7 +103,7 @@ function HeaderTip({ label, hint, align = "center", children }: { label: string;
       <span
         role="presentation"
         className={cn(
-          "pointer-events-none absolute top-full z-30 mt-2 w-max max-w-56 rounded-md border border-white/20 bg-neutral-900 px-2.5 py-1.5 text-left text-xs text-white opacity-0 shadow-lg transition-opacity delay-300 group-hover:opacity-100 group-focus-within:opacity-100",
+          "pointer-events-none absolute top-full z-30 mt-2 w-max max-w-56 rounded-md border border-white/20 bg-neutral-900 px-2.5 py-1.5 text-left text-xs text-white opacity-0 shadow-lg transition-opacity delay-300 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100",
           align === "end" ? "right-0" : "left-1/2 -translate-x-1/2",
         )}
       >
