@@ -33,6 +33,8 @@ bun run db:migrate
 bun run dev              # http://localhost:3000
 ```
 
+New to the project? See [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) (in Spanish) for how to inspect the database with Drizzle Studio and how to recover access if you forget the initial user.
+
 Next.js 16 differs from older versions (for example the middleware file is `proxy.ts`). Read the relevant guide in `node_modules/next/dist/docs/` before changing framework-level code.
 
 ## Useful commands
