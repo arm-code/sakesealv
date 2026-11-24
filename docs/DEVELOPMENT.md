@@ -9,10 +9,10 @@ Para la instalación general y las variables de entorno, ver el [README](../READ
 ## 1. Levantar el entorno
 
 ```bash
-bun install
+pnpm install
 cp .env.example .env      # en Windows: copy .env.example .env
-bun run db:migrate        # primera vez y después de cada cambio de esquema
-bun run dev               # http://localhost:3000
+pnpm run db:migrate        # primera vez y después de cada cambio de esquema
+pnpm run dev               # http://localhost:3000
 ```
 
 En `.env` lo mínimo para desarrollo es:
@@ -43,7 +43,7 @@ Sake usa **libSQL (compatible con SQLite)**. En desarrollo es un archivo local:
 **Opción recomendada: Drizzle Studio** (ya incluido en el proyecto, no requiere instalar nada más):
 
 ```bash
-bun run db:studio
+pnpm run db:studio
 ```
 
 Abre una interfaz web (normalmente `https://local.drizzle.studio`) con todas las tablas. Desde ahí puedes ver, editar y borrar filas, o ejecutar SQL.
@@ -55,7 +55,7 @@ Abre una interfaz web (normalmente `https://local.drizzle.studio`) con todas las
 ### Esquema y migraciones
 
 - El esquema está en `src/lib/server/infrastructure/db/schema.ts`.
-- Después de cambiarlo: `bun run db:generate` crea la migración en `drizzle/` y `bun run db:migrate` la aplica.
+- Después de cambiarlo: `pnpm run db:generate` crea la migración en `drizzle/` y `pnpm run db:migrate` la aplica.
 - Sube a git los archivos generados en `drizzle/`.
 
 ## 3. Usuarios y acceso
@@ -82,7 +82,7 @@ SELECT id, username, is_disabled, last_login_at, created_at FROM Users;
 
 La forma más simple es borrar el usuario para que el registro se reabra:
 
-1. Abre Drizzle Studio (`bun run db:studio`) o cualquier cliente SQLite.
+1. Abre Drizzle Studio (`pnpm run db:studio`) o cualquier cliente SQLite.
 2. Borra la fila del usuario. Con SQL:
    ```sql
    DELETE FROM Users WHERE id = 1;
@@ -92,20 +92,20 @@ La forma más simple es borrar el usuario para que el registro se reabra:
 
 **Qué se borra junto con el usuario** (`ON DELETE CASCADE`): sus sesiones (`UserSessions`) y sus API keys (`UserApiKeys`). Los **libros no se borran**: no pertenecen a un usuario. Si el borrado falla por una restricción de llave foránea, revisa las tablas que referencian `Users`.
 
-**Reinicio total** (si prefieres empezar de cero): detén `bun run dev`, borra `.data/dev.db` y ejecuta `bun run db:migrate` de nuevo. Pierdes **todos** los datos locales.
+**Reinicio total** (si prefieres empezar de cero): detén `pnpm run dev`, borra `.data/dev.db` y ejecuta `pnpm run db:migrate` de nuevo. Pierdes **todos** los datos locales.
 
 > Esto aplica solo a tu base local. En producción o en un stack self-host con datos reales no borres usuarios sin respaldo previo.
 
 ## 4. Comandos útiles
 
 ```bash
-bun run dev           # servidor de desarrollo
-bun run lint          # eslint
-bunx tsc --noEmit     # chequeo de tipos (debe terminar sin errores)
-bun run build         # build de producción
-bun run db:generate   # genera migración desde schema.ts
-bun run db:migrate    # aplica migraciones
-bun run db:studio     # explorador visual de la base de datos
+pnpm run dev           # servidor de desarrollo
+pnpm run lint          # eslint
+pnpm exec tsc --noEmit     # chequeo de tipos (debe terminar sin errores)
+pnpm run build         # build de producción
+pnpm run db:generate   # genera migración desde schema.ts
+pnpm run db:migrate    # aplica migraciones
+pnpm run db:studio     # explorador visual de la base de datos
 ```
 
 ## 5. Problemas frecuentes
@@ -113,5 +113,5 @@ bun run db:studio     # explorador visual de la base de datos
 | Síntoma | Causa y solución |
 |---|---|
 | No puedo iniciar sesión y no veo cómo registrarme | Ya existe un usuario. Ver "Olvidé el usuario o la contraseña". |
-| `no such table` al arrancar o consultar | Falta aplicar migraciones: `bun run db:migrate`. |
+| `no such table` al arrancar o consultar | Falta aplicar migraciones: `pnpm run db:migrate`. |
 | Subir o descargar libros falla | SeaweedFS no está corriendo: `docker compose up -d seaweedfs seaweedfs-init`. |
