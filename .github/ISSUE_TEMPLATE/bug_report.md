@@ -36,7 +36,7 @@ Describe the actual behavior, error message, or broken state.
 
 **Environment**
 - Sake version / image tag / commit: [e.g. `2026.03.28.1`, `latest`, or a commit SHA]
-- Setup: [e.g. Docker prebuilt image, Docker from source, local Bun dev]
+- Setup: [e.g. Docker prebuilt image, Docker from source, local pnpm dev]
 - Database: [e.g. libSQL/Turso, local file-backed libSQL]
 - Storage: [e.g. Cloudflare R2, MinIO, SeaweedFS, other S3-compatible storage]
 - Enabled search providers: [e.g. none, `openlib,gutenberg`, `zlib`]

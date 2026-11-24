@@ -44,9 +44,9 @@ Data is persisted under `./.data/selfhost/libsql` and `./.data/selfhost/seaweedf
 
 To stop it: `docker compose down`.
 
-### Option B — Local development with Bun
+### Option B — Local development with pnpm
 
-You need Bun, a libSQL database (a local file is fine) and an S3-compatible bucket. The quickest bucket is the SeaweedFS from the compose file above:
+You need Node 22 and pnpm, a libSQL database (a local file is fine) and an S3-compatible bucket. The quickest bucket is the SeaweedFS from the compose file above:
 
 ```bash
 docker compose up -d seaweedfs seaweedfs-init
@@ -56,9 +56,9 @@ Then:
 
 ```bash
 cp .env.example .env     # fill it in, see "Configuration"
-bun install
-bun run db:migrate       # first run, and after every schema change
-bun run dev
+pnpm install
+pnpm run db:migrate       # first run, and after every schema change
+pnpm run dev
 ```
 
 Open <http://localhost:3000>. In dev mode each page compiles the first time you open it (10–60 s), so the first load looks slow.
@@ -121,7 +121,7 @@ S3_SECRET_ACCESS_KEY=your-secret-access-key
 S3_FORCE_PATH_STYLE=false
 ```
 
-Run the migrations once against it (`bun run db:migrate` with that `.env`, or the migrator image below) before starting the app.
+Run the migrations once against it (`pnpm run db:migrate` with that `.env`, or the migrator image below) before starting the app.
 
 ## Docker image
 
@@ -169,14 +169,14 @@ Results can be downloaded to your browser or sent to your library; queued items 
 ## Development
 
 ```bash
-bun run dev              # dev server on :3000
-bun run build            # production build (needs network for Google Fonts)
-bun run start            # serve the production build
-bun run lint
-bunx tsc --noEmit        # type check
-bun run db:generate      # after editing src/lib/server/infrastructure/db/schema.ts
-bun run db:migrate
-bun run db:studio
+pnpm run dev              # dev server on :3000
+pnpm run build            # production build (needs network for Google Fonts)
+pnpm run start            # serve the production build
+pnpm run lint
+pnpm exec tsc --noEmit        # type check
+pnpm run db:generate      # after editing src/lib/server/infrastructure/db/schema.ts
+pnpm run db:migrate
+pnpm run db:studio
 ```
 
 New to the project? Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (diagrams, components, flows and how everything starts up) and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (local setup and database).

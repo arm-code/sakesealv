@@ -69,7 +69,7 @@ Puntos clave:
 |---|---|---|
 | **Next.js 16** (App Router) + **React 19** | UI y API en un solo proceso. Ojo: tiene cambios incompatibles con versiones anteriores (p. ej. `proxy.ts` en lugar de `middleware.ts`); ver [AGENTS.md](../AGENTS.md) | `src/app` |
 | **TypeScript** | Todo el código web | — |
-| **Bun** | Gestor de paquetes y runner de scripts (`bun install`, `bun run …`) | `package.json`, `bun.lock` |
+| **pnpm** | Gestor de paquetes y runner de scripts (`pnpm install`, `pnpm run …`) | `package.json`, `pnpm-lock.yaml` |
 | **Tailwind 4**, **shadcn/ui**, **base-ui** | Estilos y componentes | `src/components`, `components.json` |
 | **libSQL** (SQLite compatible, o Turso) | Base de datos | `LIBSQL_URL` |
 | **Drizzle ORM / drizzle-kit** | Esquema tipado y migraciones SQL | `src/lib/server/infrastructure/db/schema.ts`, `drizzle/` |
@@ -255,7 +255,7 @@ erDiagram
     Books }o--o{ Shelves : "BookShelves"
 ```
 
-> Es un resumen conceptual; para columnas y relaciones exactas, abre `schema.ts` o `bun run db:studio`. Los libros **no pertenecen a un usuario**. `QueueJobs` (cola de descargas), `PluginReleases` y los ajustes de Hardcover/Z-Library son tablas independientes. Los nombres de tabla empiezan con mayúscula.
+> Es un resumen conceptual; para columnas y relaciones exactas, abre `schema.ts` o `pnpm run db:studio`. Los libros **no pertenecen a un usuario**. `QueueJobs` (cola de descargas), `PluginReleases` y los ajustes de Hardcover/Z-Library son tablas independientes. Los nombres de tabla empiezan con mayúscula.
 
 ## 10. Cómo se levanta
 
@@ -263,20 +263,20 @@ erDiagram
 
 ```mermaid
 flowchart LR
-    ENV[".env<br/>LIBSQL_URL + S3_*"] --> DEV["bun run dev<br/>:3000"]
-    MIG["bun run db:migrate"] --> DBF[(".data/dev.db")]
+    ENV[".env<br/>LIBSQL_URL + S3_*"] --> DEV["pnpm run dev<br/>:3000"]
+    MIG["pnpm run db:migrate"] --> DBF[(".data/dev.db")]
     DBF --> DEV
     SW["docker compose up -d<br/>seaweedfs seaweedfs-init<br/>:8333"] --> DEV
 ```
 
-**Requisitos:** [Bun](https://bun.sh), Docker (solo para el S3 local de SeaweedFS) y Git. Node no es necesario para desarrollar; la imagen de producción usa Node 22.
+**Requisitos:** Node 22, [pnpm](https://pnpm.io) (`corepack enable`), Docker (solo para el S3 local de SeaweedFS) y Git. La imagen de producción también se construye con Node 22 y pnpm, así que funciona en CPUs viejos y nuevos.
 
 ```bash
-bun install
+pnpm install
 cp .env.example .env                              # Windows: copy .env.example .env
 docker compose up -d seaweedfs seaweedfs-init     # S3 local (solo para subir/descargar libros)
-bun run db:migrate
-bun run dev                                       # http://localhost:3000
+pnpm run db:migrate
+pnpm run dev                                       # http://localhost:3000
 ```
 
 Guía completa y problemas frecuentes: [DEVELOPMENT.md](DEVELOPMENT.md).
@@ -303,7 +303,7 @@ docker compose up --build        # abre http://localhost:5173
 | Quiero… | Empieza por |
 |---|---|
 | Agregar un endpoint | Un `route.ts` en `src/app/api/…` → un caso de uso en `application/use-cases/` → registrarlo en `composition.ts` |
-| Cambiar la base de datos | Editar `schema.ts` → `bun run db:generate` → `bun run db:migrate` → subir `drizzle/` |
+| Cambiar la base de datos | Editar `schema.ts` → `pnpm run db:generate` → `pnpm run db:migrate` → subir `drizzle/` |
 | Agregar un proveedor de búsqueda o metadata | `infrastructure/search-providers/` o `metadata-providers/` + su `*-factory.ts` + variable `ACTIVATED_*` |
 | Cambiar el lector web | `src/components/reader`, `src/lib/reader` |
 | Cambiar el plugin del e-reader | `koreaderPlugins/sake.koplugin` (arranca en `main.lua`; `api/` habla con el servidor, `engines/` y `controllers/` orquestan, `ui/` son los menús) |
@@ -315,4 +315,4 @@ docker compose up --build        # abre http://localhost:5173
 - Los segmentos dinámicos hermanos deben llamarse igual (`[id]` junto a `[id]`, nunca `[title]`): compila pero falla en runtime.
 - En `next dev`, crear una carpeta de ruta nueva con el servidor corriendo puede dejar todas las rutas en 404 hasta reiniciar.
 - La primera carga de cada página en dev tarda (10–60 s); la del lector hasta 30–90 s.
-- `no such table` = faltan migraciones (`bun run db:migrate`).
+- `no such table` = faltan migraciones (`pnpm run db:migrate`).

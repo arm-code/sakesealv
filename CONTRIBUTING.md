@@ -6,7 +6,7 @@ This repository contains the Sake web app, its backend and the KOReader plugin. 
 
 ## Repository layout
 
-- `src/` - the Next.js application (App Router, Next.js 16 + React 19 + TypeScript, Bun)
+- `src/` - the Next.js application (App Router, Next.js 16 + React 19 + TypeScript, pnpm)
 - `drizzle/` - SQL migrations
 - `koreaderPlugins/` - KOReader plugin source
 - `docs/` - screenshots
@@ -24,13 +24,13 @@ For larger work, it helps to open an issue first so the approach can be aligned 
 
 ## Local setup
 
-Sake is Bun-first and uses Next.js 16 with strict TypeScript. Setup, environment variables and Docker options are documented in [README.md](./README.md).
+Sake uses pnpm (Node 22) and Next.js 16 with strict TypeScript. Setup, environment variables and Docker options are documented in [README.md](./README.md).
 
 ```bash
-bun install
+pnpm install
 cp .env.example .env     # configure the database and S3-compatible storage
-bun run db:migrate
-bun run dev              # http://localhost:3000
+pnpm run db:migrate
+pnpm run dev              # http://localhost:3000
 ```
 
 New to the project? See [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) (in Spanish) for how to inspect the database with Drizzle Studio and how to recover access if you forget the initial user.
@@ -40,15 +40,15 @@ Next.js 16 differs from older versions (for example the middleware file is `prox
 ## Useful commands
 
 ```bash
-bun run dev
-bun run lint
-bunx tsc --noEmit
-bun run build
-bun run db:generate
-bun run db:migrate
+pnpm run dev
+pnpm run lint
+pnpm exec tsc --noEmit
+pnpm run build
+pnpm run db:generate
+pnpm run db:migrate
 ```
 
-Before opening a pull request, `bunx tsc --noEmit` should pass with zero errors and `bun run build` should succeed.
+Before opening a pull request, `pnpm exec tsc --noEmit` should pass with zero errors and `pnpm run build` should succeed.
 
 ## Architecture expectations
 
@@ -88,7 +88,7 @@ The plugin release source of truth is the database metadata managed by the app, 
 
 When generating migrations:
 
-- use `bun run db:generate`
+- use `pnpm run db:generate`
 - keep migration filenames explicit and descriptive
 - do not leave a trailing `--> statement-breakpoint`
 - make sure breakpoints only separate real SQL statements

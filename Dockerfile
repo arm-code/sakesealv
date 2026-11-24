@@ -1,9 +1,14 @@
 # Imagen de Sake (Next.js). Contexto de build: la raíz del repo.
 #   docker build -t sake .
-FROM oven/bun:1 AS deps
+#
+# Usa Node + pnpm (no Bun) para construir: así la misma imagen funciona en servidores
+# nuevos y en CPUs viejos (Bun exige instrucciones modernas y muere con "Illegal
+# instruction" en procesadores sin AVX2/SSE4.2).
+FROM node:22-slim AS deps
 WORKDIR /app
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+# La versión de pnpm sale del campo "packageManager" de package.json
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
 
 FROM deps AS builder
 ARG PUBLIC_WEBAPP_VERSION=dev-local
@@ -13,17 +18,19 @@ ARG PUBLIC_WEBAPP_RELEASED_AT=
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY . ./
 # Las variables PUBLIC_WEBAPP_* se leen en runtime (api/app/version), no hace falta hornearlas aquí.
-RUN bun run build
+RUN pnpm run build
 
 # Migraciones: necesita drizzle-kit (devDependency), por eso usa todas las dependencias.
 #   docker run --rm --env-file ... sake-migrator
+# También incluye el script que crea el bucket S3 (sustituye a la imagen del CLI de AWS).
 FROM deps AS migrator
 WORKDIR /app
 COPY drizzle.config.ts tsconfig.json ./
 COPY drizzle ./drizzle
 COPY src/lib/server/config/infrastructure.shared.js ./src/lib/server/config/infrastructure.shared.js
 COPY src/lib/server/infrastructure/db/schema.ts ./src/lib/server/infrastructure/db/schema.ts
-CMD ["bun", "run", "drizzle-kit", "migrate"]
+COPY scripts/ensure-bucket.mjs ./scripts/ensure-bucket.mjs
+CMD ["pnpm", "exec", "drizzle-kit", "migrate"]
 
 FROM node:22-slim AS runtime
 WORKDIR /app
