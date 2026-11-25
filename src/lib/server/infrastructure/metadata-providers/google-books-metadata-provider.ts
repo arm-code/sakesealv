@@ -1,3 +1,4 @@
+import { APP_USER_AGENT } from "@/lib/app-info";
 import { apiError, apiOk, type ApiResult } from "@/lib/server/http/api";
 import type {
   MetadataCandidate,
@@ -74,7 +75,7 @@ export class GoogleBooksMetadataProvider implements MetadataProviderPort {
 
     try {
       const response = await fetch(url, {
-        headers: { "User-Agent": "Sake/1.0 (+https://github.com/Sudashiii/Sake)" },
+        headers: { "User-Agent": APP_USER_AGENT },
       });
       if (!response.ok) {
         return apiError(`Google Books API returned ${response.status}`, 502);

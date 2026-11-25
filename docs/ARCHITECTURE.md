@@ -143,7 +143,7 @@ flowchart TB
 | `jobs/` | Jobs de fondo. |
 | `opds/`, `dav/` | Catálogo OPDS y WebDAV. |
 
-> Los comentarios "Fase 3x" en `composition.ts` son historial de la migración desde SvelteKit (ver [MIGRATION_HANDOFF.md](../MIGRATION_HANDOFF.md)); todas las fases ya están portadas.
+> Los comentarios "Fase …" repartidos por el código son historial de cuando la app se portó desde SvelteKit (Sake original); todas esas fases ya están hechas.
 
 ## 6. API HTTP (`src/app/api`)
 

@@ -1,0 +1,18 @@
+Sake
+====
+
+This project is a derivative work of Sake (https://github.com/Sudashiii/Sake),
+created by Sascha Lorenz (Sudashiii) and contributors, licensed under the
+GNU Affero General Public License v3.0 only (AGPL-3.0-only).
+
+Modifications Copyright (C) 2026 Alexis Romero Mendoza and contributors:
+  - Rewrite of the web application on Next.js (from the original SvelteKit one)
+  - Docker / Coolify deployment (compose files, sqld database service, S3 bootstrap)
+  - Compatibility work for older x86-64 CPUs
+  - Ongoing features and fixes in this repository
+
+The original copyright notices and the full license text (LICENSE) are retained.
+This derivative work is distributed under the same license: AGPL-3.0-only.
+The authorship of the original code is preserved in this repository's git history.
+
+Source code of this version: https://github.com/arm-code/sakesealv

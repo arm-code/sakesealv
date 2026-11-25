@@ -1,3 +1,4 @@
+import { APP_USER_AGENT } from "@/lib/app-info";
 import { apiError, apiOk, type ApiResult } from "@/lib/server/http/api";
 import type {
   MetadataCandidate,
@@ -18,7 +19,7 @@ import { normalizeAuthorForMatch } from "@/lib/utils/author";
 const ISBNDB_API_BASE_URL = "https://api.isbndb.com";
 const DEFAULT_QUERY_LIMIT = 5;
 const MAX_QUERY_LIMIT = 10;
-const USER_AGENT = "Sake/1.0 (+https://github.com/Sudashiii/Sake)";
+const USER_AGENT = APP_USER_AGENT;
 
 const TOUCHED_FIELDS = new Set([
   "title",

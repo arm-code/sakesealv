@@ -4,8 +4,8 @@ import { errorResponse } from "@/lib/server/http/api";
 import type { SessionAuthActor } from "@/lib/server/domain/auth";
 import { SAKE_API_KEY_HEADER_NAME, SAKE_SESSION_COOKIE_NAME } from "./constants";
 
-// Reemplaza el gate centralizado que SvelteKit resolvía una vez en
-// hooks.server.ts (event.locals.auth): en Next.js App Router, proxy.ts
+// No hay un gate centralizado (el Sake original lo resolvía una vez en
+// hooks.server.ts): en Next.js App Router, proxy.ts
 // (antes middleware.ts) no puede compartir objetos tipados con los Route
 // Handlers — solo headers/cookies — así que cada ruta protegida resuelve su
 // propia sesión llamando a este helper. Mismo resultado, sin la complejidad

@@ -1,8 +1,8 @@
 // Composition root: instancia repositorios, servicios y casos de uso, y los
 // exporta para que las rutas (src/app/api) y los jobs de fondo los consuman.
 // Al agregar una feature, registra aquí su use-case. Las referencias "Fase 3x"
-// de los comentarios son del historial de migración desde SvelteKit
-// (ver MIGRATION_HANDOFF.md); todas las fases están portadas.
+// de los comentarios son historial del port desde SvelteKit (Sake original);
+// todas las fases ya están hechas.
 import { UserRepository } from "@/lib/server/infrastructure/repositories/user-repository";
 import { UserSessionRepository } from "@/lib/server/infrastructure/repositories/user-session-repository";
 import { UserApiKeyRepository } from "@/lib/server/infrastructure/repositories/user-api-key-repository";

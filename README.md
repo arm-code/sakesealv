@@ -2,7 +2,7 @@
 
 Self-host your reading stack with a clean web library, KOReader sync, and provider-powered book imports.
 
-Sake is a self-hosted web library built around [KOReader](https://koreader.rocks): it keeps your books, reading progress, highlights and notes in one place and syncs them with your e-readers. It is built with Next.js 16, React 19, TypeScript and Bun.
+Sake is a self-hosted web library built around [KOReader](https://koreader.rocks): it keeps your books, reading progress, highlights and notes in one place and syncs them with your e-readers. It is built with Next.js 16, React 19, TypeScript and pnpm.
 
 ![Sake library page](./docs/img/webapp/library.png)
 
@@ -130,7 +130,7 @@ Run the migrations once against it (`pnpm run db:migrate` with that `.env`, or t
 | Target | What it is |
 | --- | --- |
 | `runtime` | The app (`node server.js` from Next's standalone output, ~460 MB). Includes the KOReader plugin. |
-| `migrator` | Applies database migrations (`drizzle-kit migrate`). Run it before the app and after upgrades. |
+| `migrator` | Applies database migrations (`node scripts/migrate.mjs`). Run it before the app and after upgrades. |
 
 ```bash
 docker build --target runtime  -t sake .
@@ -208,8 +208,6 @@ drizzle/              SQL migrations
 - In `next dev`, creating a new route folder while the server runs can leave every route returning 404 until you restart it.
 - The first load of the reader in dev can take 30–90 s while book locations are generated.
 
-`MIGRATION_HANDOFF.md` is the engineering log of the port from the previous SvelteKit implementation (kept on its own branch), phase by phase.
-
 ## Screenshots
 
 <p><img src="./docs/img/webapp/search.png" alt="Search view" width="700"></p>
@@ -217,6 +215,12 @@ drizzle/              SQL migrations
 <p><img src="./docs/img/webapp/progress.png" alt="Reading progress view" width="700"></p>
 <p><img src="./docs/koreader/MainMenu.png" alt="KOReader plugin main menu" width="350"></p>
 
+## Credits
+
+Sake started as a fork of [**Sudashiii/Sake**](https://github.com/Sudashiii/Sake) by Sascha Lorenz and contributors, whose original design, KOReader plugin and feature set this project builds on. Since then it has taken its own path: the web app was rewritten on Next.js, and it is now maintained independently here. Many thanks to the original author. The upstream history is preserved in this repository's git log.
+
+See [`NOTICE`](NOTICE) for details.
+
 ## License
 
-AGPL-3.0-only. See `LICENSE`.
+AGPL-3.0-only. See `LICENSE`. Because Sake is a network service, the AGPL requires that its users can obtain the source of the version they are running; the app links to this repository from **Settings → App**.

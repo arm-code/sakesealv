@@ -26,7 +26,7 @@ export function useZlibraryAuth() {
     // pedirle al servidor que limpie las cookies — ese 401/403 llega con el
     // header x-sake-clear-zlibrary-auth, que dispara este evento (ver
     // apply-auth-response-signals.ts). Reaccionamos limpiando el estado local
-    // tambien, igual que hacia +layout.svelte en el original.
+    // tambien.
     function handleAuthCleared(): void {
       clearName();
     }
