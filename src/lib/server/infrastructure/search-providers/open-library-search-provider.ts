@@ -1,3 +1,4 @@
+import { APP_USER_AGENT } from "@/lib/app-info";
 import type { SearchProviderContext, SearchProviderDownloadInput, SearchProviderDownloadPort, SearchProviderPort } from "@/lib/server/application/ports";
 import { apiError, apiOk, type ApiResult } from "@/lib/server/http/api";
 import {
@@ -267,7 +268,7 @@ export class OpenLibrarySearchProvider implements SearchProviderPort, SearchProv
         return await fetch(url, {
           headers: {
             Accept: "application/json",
-            "User-Agent": "Sake/1.0 (+https://github.com/Sudashiii/Sake)",
+            "User-Agent": APP_USER_AGENT,
           },
         });
       } catch (cause: unknown) {
@@ -334,7 +335,7 @@ export class OpenLibrarySearchProvider implements SearchProviderPort, SearchProv
       const metadataResponse = await fetch(`https://archive.org/metadata/${encodeURIComponent(iaId)}`, {
         headers: {
           Accept: "application/json",
-          "User-Agent": "Sake/1.0 (+https://github.com/Sudashiii/Sake)",
+          "User-Agent": APP_USER_AGENT,
         },
       });
       if (!metadataResponse.ok) {
@@ -359,7 +360,7 @@ export class OpenLibrarySearchProvider implements SearchProviderPort, SearchProv
       const downloadUrl = `https://archive.org/download/${encodeURIComponent(iaId)}/${encodePath(selectedFileName)}`;
       const downloadResponse = await fetch(downloadUrl, {
         headers: {
-          "User-Agent": "Sake/1.0 (+https://github.com/Sudashiii/Sake)",
+          "User-Agent": APP_USER_AGENT,
         },
       });
       if (!downloadResponse.ok) {

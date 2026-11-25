@@ -1,3 +1,4 @@
+import { APP_USER_AGENT } from "@/lib/app-info";
 import { apiError, apiOk, type ApiResult } from "@/lib/server/http/api";
 import type {
   MetadataCandidate,
@@ -224,7 +225,7 @@ export class OpenLibraryMetadataProvider implements MetadataProviderPort {
     const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(variant.queryText)}&limit=${limit}&fields=${OPEN_LIBRARY_FIELDS}`;
 
     const response = await fetch(url, {
-      headers: { "User-Agent": "Sake/1.0 (+https://github.com/Sudashiii/Sake)" },
+      headers: { "User-Agent": APP_USER_AGENT },
     });
     if (!response.ok) {
       throw new Error(`OpenLibrary API returned ${response.status}`);

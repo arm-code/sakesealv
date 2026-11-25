@@ -1,3 +1,4 @@
+import { APP_USER_AGENT } from "@/lib/app-info";
 // Recortado a lo que usa GetLibraryCoverUseCase (Fase 3f),
 // DeleteTrashedLibraryBookUseCase/PurgeExpiredTrashUseCase
 // (deleteManagedBookCoversForStorageKey, Fase 3h), Upload/
@@ -16,7 +17,7 @@ const OPEN_LIBRARY_COVER_HOST = "covers.openlibrary.org";
 
 const LIBRARY_COVER_ROUTE_PREFIX = "/api/library/covers/";
 const LIBRARY_COVER_STORAGE_PREFIX = "covers/";
-const DEFAULT_USER_AGENT = "Sake/1.0 (+https://github.com/Sudashiii/Sake)";
+const DEFAULT_USER_AGENT = APP_USER_AGENT;
 const MANAGED_COVER_FILE_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpg|png|gif|webp|avif)$/i;
 
 const IMAGE_CONTENT_TYPE_TO_EXTENSION = new Map<string, string>([

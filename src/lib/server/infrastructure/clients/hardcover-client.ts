@@ -1,6 +1,7 @@
+import { APP_USER_AGENT } from "@/lib/app-info";
 const HARDCOVER_API_URL = "https://api.hardcover.app/v1/graphql";
 const UPSTREAM_TIMEOUT_MS = 30_000;
-const USER_AGENT = "Sake/1.0 (+https://github.com/Sudashiii/Sake)";
+const USER_AGENT = APP_USER_AGENT;
 const RATE_LIMIT_INTERVAL_MS = 1_000;
 
 import {

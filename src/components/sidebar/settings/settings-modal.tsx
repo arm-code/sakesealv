@@ -1,4 +1,5 @@
 "use client";
+import { APP_SOURCE_URL } from "@/lib/app-info";
 
 import { useState } from "react";
 import { AppWindow, CircleUserRound, Download, Share2, Smartphone } from "lucide-react";
@@ -25,8 +26,6 @@ const SECTIONS = [
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
-
-const APP_SOURCE_URL = "https://github.com/Sudashiii/Sake";
 
 function formatDateTime(value: string | null): string {
   if (!value) return "Never";

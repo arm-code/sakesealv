@@ -18,7 +18,7 @@ export interface KoreaderPluginUpstreamVersionResult {
 type FetchMeta = (url: string, init: RequestInit) => Promise<Response>;
 
 const DEFAULT_UPSTREAM_META_URL =
-  "https://raw.githubusercontent.com/Sudashiii/Sake/master/koreaderPlugins/sake.koplugin/_meta.lua";
+  "https://raw.githubusercontent.com/arm-code/sakesealv/main/koreaderPlugins/sake.koplugin/_meta.lua";
 const DEFAULT_TIMEOUT_MS = 5000;
 
 export class GetKoreaderPluginUpstreamVersionUseCase {

@@ -1,3 +1,4 @@
+import { UPSTREAM_SOURCE_URL } from "@/lib/app-info";
 import { useSyncExternalStore } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -153,6 +154,13 @@ export function AppPane({
         <p className="mt-2 text-sm text-muted-foreground">
           Built with privacy in mind — all data stays on your server. No telemetry, no tracking,
           fully open source.
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Based on{" "}
+          <a href={UPSTREAM_SOURCE_URL} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+            Sake by Sudashiii
+          </a>
+          , used under the AGPL-3.0 license.
         </p>
       </div>
 
