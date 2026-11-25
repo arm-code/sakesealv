@@ -46,9 +46,6 @@
   },
   "packageManager": "pnpm@10.19.0",
   "pnpm": {
-    "overrides": {
-      "libsql": "0.5.28"
-    },
     "onlyBuiltDependencies": [
       "sharp",
       "unrs-resolver"

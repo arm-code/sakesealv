@@ -14,7 +14,20 @@ import { resolveLibsqlConfig } from '../src/lib/server/config/infrastructure.sha
 const config = resolveLibsqlConfig(process.env);
 const client = createClient({ url: config.url, authToken: config.authToken });
 
+async function waitForDatabase() {
+	for (let attempt = 1; attempt <= 30; attempt++) {
+		try {
+			await client.execute('select 1');
+			return;
+		} catch (error) {
+			if (attempt === 30) throw error;
+			await new Promise((resolve) => setTimeout(resolve, 2000));
+		}
+	}
+}
+
 try {
+	await waitForDatabase();
 	await migrate(drizzle(client), { migrationsFolder: './drizzle' });
 	console.log('Migraciones aplicadas.');
 } catch (error) {

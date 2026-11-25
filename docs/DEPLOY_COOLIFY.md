@@ -37,14 +37,21 @@ Los otros tres servicios no llevan dominio.
 La primera vez construye la imagen (varios minutos), aplica las migraciones, crea el bucket y
 arranca la app. `sake-migrator` y `seaweedfs-init` terminan con código 0: es lo esperado.
 
+## Nota: ¿por qué un servidor `sqld` y no un archivo?
+En Coolify la base corre en un contenedor `sqld` (libSQL) y la app se conecta por HTTP. El
+binario nativo de libsql que abre archivos locales (`LIBSQL_URL=file:...`) muere con
+"Illegal instruction" al escribir en CPUs viejos (sin SSE4.2/AVX2, p. ej. Core 2 Duo);
+`sqld` sí corre en ellos y en CPUs modernos funciona igual. Para el self-host local con
+`docker-compose.yaml` sigue valiendo el archivo `file:`.
+
 ## 5. Datos y respaldos
 Dos volúmenes con nombre guardan todo; **no los pierdas**:
-- `libsql` → la base de datos (`/data/sake.db`).
+- `sqld` → la base de datos (servidor libSQL, datos en `/var/lib/sqld`).
 - `seaweedfs` → los libros.
 
-Respaldo (en el servidor; cambia el nombre del volumen por el real, `docker volume ls | grep libsql`):
+Respaldo (en el servidor; cambia el nombre del volumen por el real, `docker volume ls | grep sqld`):
 
 ```bash
-docker run --rm -v <volumen_libsql>:/data -v "$PWD":/out alpine tar czf /out/sake-libsql.tgz -C /data .
+docker run --rm -v <volumen_sqld>:/data -v "$PWD":/out alpine tar czf /out/sake-sqld.tgz -C /data .
 docker run --rm -v <volumen_seaweedfs>:/data -v "$PWD":/out alpine tar czf /out/sake-seaweedfs.tgz -C /data .
 ```
