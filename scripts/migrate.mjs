@@ -1,7 +1,9 @@
 // Aplica las migraciones de Drizzle (carpeta ./drizzle) a la base libSQL.
 // Sustituye a `drizzle-kit migrate` en la imagen: drizzle-kit muere con "Illegal
 // instruction" (SIGILL) en CPUs viejos, mientras que @libsql/client + drizzle-orm
-// (lo mismo que usa la app) funcionan en cualquier CPU. Usa la misma tabla de control
+// (lo mismo que usa la app) funcionan en cualquier CPU.
+// OJO: libsql está fijado en 0.5.28 (pnpm.overrides en package.json): la 0.5.29 trae un
+// binario que muere con SIGILL al ejecutar CREATE TABLE en CPUs sin SSE4.2/AVX2. Usa la misma tabla de control
 // (__drizzle_migrations), así que es compatible con bases ya migradas con drizzle-kit.
 //   node scripts/migrate.mjs     (lee LIBSQL_URL / LIBSQL_AUTH_TOKEN del entorno)
 import { createClient } from '@libsql/client';
