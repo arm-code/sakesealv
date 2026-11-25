@@ -20,7 +20,7 @@ COPY . ./
 # Las variables PUBLIC_WEBAPP_* se leen en runtime (api/app/version), no hace falta hornearlas aquí.
 RUN pnpm run build
 
-# Migraciones: necesita drizzle-kit (devDependency), por eso usa todas las dependencias.
+# Migraciones: scripts/migrate.mjs usa drizzle-orm (no drizzle-kit, que da SIGILL en CPUs viejos).
 #   docker run --rm --env-file ... sake-migrator
 # También incluye el script que crea el bucket S3 (sustituye a la imagen del CLI de AWS).
 FROM deps AS migrator
@@ -29,8 +29,8 @@ COPY drizzle.config.ts tsconfig.json ./
 COPY drizzle ./drizzle
 COPY src/lib/server/config/infrastructure.shared.js ./src/lib/server/config/infrastructure.shared.js
 COPY src/lib/server/infrastructure/db/schema.ts ./src/lib/server/infrastructure/db/schema.ts
-COPY scripts/ensure-bucket.mjs ./scripts/ensure-bucket.mjs
-CMD ["pnpm", "exec", "drizzle-kit", "migrate"]
+COPY scripts/ensure-bucket.mjs scripts/migrate.mjs ./scripts/
+CMD ["node", "scripts/migrate.mjs"]
 
 FROM node:22-slim AS runtime
 WORKDIR /app
